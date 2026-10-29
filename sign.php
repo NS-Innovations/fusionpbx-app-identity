@@ -75,34 +75,43 @@ $source_number = $identity->normalize_tn($source_number);
 $destination_number = $identity->normalize_tn($destination_number);
 
 // Look up a vetted brand for the calling number. Branding requires full (A) attestation.
+// Any error, including a malformed brands file, signs the call without branding.
 $brand = null;
 $rich_call_data = [];
 $signing_profile = 'default';
 if (!empty($brands_file) && $attest_level === 'A') {
-	$brands = new identity_brands($brands_file);
-	if ($brands->load()) {
-		$brand = $brands->lookup($source_number);
-	}
-	else {
-		error_log('identity: ' . $brands->error_message);
-	}
-	if ($brand !== null) {
-		$brand_profile = $brand['profile'] ?? 'bcid';
-		if ($brand_profile === 'bcid' && !empty($bcid_setting_array)) {
-			$signing_profile = 'bcid';
-		}
-		elseif ($brand_profile === 'default') {
-			$signing_profile = 'default';
+	try {
+		$brands = new identity_brands($brands_file);
+		if ($brands->load()) {
+			$brand = $brands->lookup($source_number);
 		}
 		else {
-			// BCID brand but no BCID certificate configured: sign without branding
-			error_log('identity: brand ' . $brand['brand_id'] . ' requires the bcid profile which is not configured');
-			$brand = null;
+			error_log('identity: ' . $brands->error_message);
+		}
+		if ($brand !== null) {
+			$brand_profile = $brand['profile'] ?? 'bcid';
+			if ($brand_profile === 'bcid' && !empty($bcid_setting_array)) {
+				$signing_profile = 'bcid';
+			}
+			elseif ($brand_profile === 'default') {
+				$signing_profile = 'default';
+			}
+			else {
+				// BCID brand but no BCID certificate configured: sign without branding
+				error_log('identity: brand ' . $brand['brand_id'] . ' requires the bcid profile which is not configured');
+				$brand = null;
+			}
+		}
+		if ($brand !== null) {
+			$call_reason = identity_brands::resolve_call_reason($brand, is_string($call_reason) ? $call_reason : '');
+			$rich_call_data = identity_brands::to_rich_call_data($brand, $call_reason);
 		}
 	}
-	if ($brand !== null) {
-		$call_reason = identity_brands::resolve_call_reason($brand, (string)$call_reason);
-		$rich_call_data = identity_brands::to_rich_call_data($brand, $call_reason);
+	catch (Throwable $e) {
+		error_log('identity: branding skipped for ' . $source_number . ': ' . $e->getMessage());
+		$brand = null;
+		$rich_call_data = [];
+		$signing_profile = 'default';
 	}
 }
 
