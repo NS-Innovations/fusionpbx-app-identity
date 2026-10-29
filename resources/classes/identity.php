@@ -27,6 +27,20 @@ class identity {
 	public $attest_level = '';
 
 	/**
+	 * Decoded PASSporT header and payload from the last verify() call.
+	 *
+	 * @var array Array with keys: header (array), payload (array)
+	 */
+	public $passport = ['header' => [], 'payload' => []];
+
+	/**
+	 * Seconds to wait when downloading the certificate during verification.
+	 *
+	 * @var int
+	 */
+	public $certificate_timeout = 2;
+
+	/**
 	 * Path to the private key file for signing.
 	 *
 	 * @var string
@@ -175,10 +189,15 @@ class identity {
 	 * error_message and attest_level properties on success or failure.
 	 *
 	 * @param string $identity_header The signed PASSporT token (JWT format)
+	 * @param string $certificate_pem Optional certificate to verify against instead of downloading x5u
 	 *
 	 * @return bool True if signature is valid, false otherwise
 	 */
-	public function verify($identity_header): bool {
+	public function verify($identity_header, string $certificate_pem = ''): bool {
+
+		// Reset the results from any previous call
+		$this->attest_level = '';
+		$this->passport = ['header' => [], 'payload' => []];
 
 		// Split the token into its 3 parts
 		$parts = preg_split('/\./', $identity_header);
@@ -225,6 +244,10 @@ class identity {
 			return false;
 		}
 
+		// Save the decoded PASSporT so the caller can log it
+		$this->passport['header'] = is_array($header_json) ? $header_json : [];
+		$this->passport['payload'] = is_array($payload_json) ? $payload_json : [];
+
 		// Verify PASSporT type
 		if (!isset($header_json['typ']) || $header_json['typ'] !== 'passport') {
 			$this->error_message = "Verify type invalid";
@@ -253,11 +276,26 @@ class identity {
 		$header_certificate_url = $header_json['x5u'];
 		$this->error_message = "Certificate URL: " . $header_certificate_url;
 
-		// Download certificate
-		$header_certificate_string = file_get_contents($header_certificate_url);
-		if ($header_certificate_string === false) {
-			$this->error_message = "Failed to download certificate from: " . $header_certificate_url;
-			return false;
+		// Use the provided certificate or download it from the header URL
+		if (!empty($certificate_pem)) {
+			$header_certificate_string = $certificate_pem;
+		} else {
+			// Only allow http and https, the URL comes from the caller and must not reach local files or other wrappers
+			$scheme = strtolower(parse_url($header_certificate_url, PHP_URL_SCHEME) ?? '');
+			if ($scheme !== 'https' && $scheme !== 'http') {
+				$this->error_message = "Certificate URL must be http or https: " . $header_certificate_url;
+				return false;
+			}
+
+			// Download certificate with a timeout so a slow server does not hold up the call
+			$context = stream_context_create([
+				'http' => ['timeout' => $this->certificate_timeout, 'follow_location' => 1, 'max_redirects' => 3]
+			]);
+			$header_certificate_string = @file_get_contents($header_certificate_url, false, $context);
+			if ($header_certificate_string === false) {
+				$this->error_message = "Failed to download certificate from: " . $header_certificate_url;
+				return false;
+			}
 		}
 
 		// Decode payload
@@ -293,7 +331,12 @@ class identity {
 		}
 
 		// Convert JWT P1363 signature (raw R||S) to DER format required by OpenSSL
-		$sig_der = $this->p1363_to_der($this->base64_url_decode($signature));
+		try {
+			$sig_der = $this->p1363_to_der($this->base64_url_decode($signature));
+		} catch (Exception $e) {
+			$this->error_message = "Invalid signature: " . $e->getMessage();
+			return false;
+		}
 
 		// Verify the signature
 		$result = openssl_verify($signing_input, $sig_der, $public_key, OPENSSL_ALGO_SHA256);
@@ -514,14 +557,14 @@ class identity {
 	 *
 	 * @param string $data Base64url-encoded string
 	 *
-	 * @return string Raw decoded data
+	 * @return string|false Raw decoded data or false if the input is not valid base64url
 	 */
-	public function base64_url_decode(string $data): string {
+	public function base64_url_decode(string $data): string|false {
 		$padding = 4 - (strlen($data) % 4);
 		if ($padding !== 4) {
-			$data .= str_repeat('=', $padding - 1);
+			$data .= str_repeat('=', $padding);
 		}
-		return base64_decode(strtr($data, '-_', '+/'));
+		return base64_decode(strtr($data, '-_', '+/'), true);
 	}
 
 	/**
@@ -676,6 +719,119 @@ class identity {
 	}
 
 	/**
+	 * Normalize a telephone number for use in a PASSporT.
+	 *
+	 * Removes everything except digits. A 10 digit North American number is
+	 * given the leading country code 1 because SHAKEN requires the number to
+	 * include the country code.
+	 *
+	 * @param string $tn Telephone number in any format
+	 *
+	 * @return string Digits only, with the country code when it can be determined
+	 */
+	public function normalize_tn(string $tn): string {
+		$tn = preg_replace('/[^0-9]/', '', $tn);
+		if (preg_match('/^[2-9][0-9]{2}[2-9][0-9]{6}$/', $tn)) {
+			$tn = '1' . $tn;
+		}
+		return $tn;
+	}
+
+	/**
+	 * Inspect the configured private key and certificate.
+	 *
+	 * Reports whether each file exists and can be read, the private key file
+	 * permissions and curve, the certificate subject, issuer and validity dates,
+	 * and whether the private key belongs to the certificate.
+	 *
+	 * @return array Array with keys: private_key (array), certificate (array), key_matches_certificate (bool)
+	 */
+	public function certificate_status(): array {
+		$status = [
+			'private_key' => [
+				'path' => $this->private_key_path,
+				'exists' => false,
+				'readable' => false,
+				'mode' => '',
+				'curve' => '',
+			],
+			'certificate' => [
+				'path' => $this->certificate_path,
+				'exists' => false,
+				'readable' => false,
+				'subject' => '',
+				'issuer' => '',
+				'self_signed' => false,
+				'valid_from' => 0,
+				'valid_to' => 0,
+				'pem' => '',
+			],
+			'key_matches_certificate' => false,
+		];
+
+		// Private key
+		$private_key = false;
+		if (!empty($this->private_key_path) && file_exists($this->private_key_path)) {
+			$status['private_key']['exists'] = true;
+			$status['private_key']['mode'] = substr(sprintf('%o', fileperms($this->private_key_path)), -4);
+			$key_content = @file_get_contents($this->private_key_path);
+			if ($key_content !== false) {
+				$status['private_key']['readable'] = true;
+				$private_key = openssl_pkey_get_private($key_content);
+				if ($private_key !== false) {
+					$details = openssl_pkey_get_details($private_key);
+					$status['private_key']['curve'] = $details['ec']['curve_name'] ?? '';
+				}
+			}
+		}
+
+		// Certificate
+		$certificate = false;
+		if (!empty($this->certificate_path) && file_exists($this->certificate_path)) {
+			$status['certificate']['exists'] = true;
+			$certificate_pem = @file_get_contents($this->certificate_path);
+			if ($certificate_pem !== false) {
+				$certificate = @openssl_x509_read($certificate_pem);
+				if ($certificate !== false) {
+					$status['certificate']['readable'] = true;
+					$status['certificate']['pem'] = $certificate_pem;
+					$info = openssl_x509_parse($certificate);
+					$status['certificate']['subject'] = $info['name'] ?? '';
+					$status['certificate']['issuer'] = isset($info['issuer']) ? $this->format_dn($info['issuer']) : '';
+					$status['certificate']['self_signed'] = isset($info['subject'], $info['issuer']) && $info['subject'] == $info['issuer'];
+					$status['certificate']['valid_from'] = $info['validFrom_time_t'] ?? 0;
+					$status['certificate']['valid_to'] = $info['validTo_time_t'] ?? 0;
+				}
+			}
+		}
+
+		// Key pair
+		if ($private_key !== false && $certificate !== false) {
+			$status['key_matches_certificate'] = openssl_x509_check_private_key($certificate, $private_key);
+		}
+
+		// Clear any errors left by openssl so they are not reported by a later call
+		while (openssl_error_string()) {}
+
+		return $status;
+	}
+
+	/**
+	 * Format an OpenSSL distinguished name array as a string.
+	 *
+	 * @param array $dn Distinguished name from openssl_x509_parse()
+	 *
+	 * @return string Distinguished name such as /C=US/O=Example/CN=Name
+	 */
+	private function format_dn(array $dn): string {
+		$result = '';
+		foreach ($dn as $key => $value) {
+			$result .= '/' . $key . '=' . (is_array($value) ? implode(',', $value) : $value);
+		}
+		return $result;
+	}
+
+	/**
 	 * Generate a self-signed certificate and private key for testing
 	 *
 	 * WARNING: This should only be used for development/testing.
@@ -698,22 +854,29 @@ class identity {
 		}
 
 		// Define the certificate path
-		$private_key_path = $output_dir . '/identity_private.key';
-		$certificate_path = $output_dir . '/identity_certificate.pem';
+		$private_key_name = basename($this->private_key_path) ?: 'identity_private.key';
+		$certificate_name = basename($this->certificate_path) ?: 'identity_certificate.pem';
+		$private_key_path = $output_dir . '/' . $private_key_name;
+		$certificate_path = $output_dir . '/' . $certificate_name;
+
+		// Never replace existing keys, they may be the official production keys
+		if (file_exists($private_key_path) || file_exists($certificate_path)) {
+			return ['private_key_path' => '', 'certificate_path' => '',
+					'error' => 'A private key or certificate already exists in ' . $output_dir];
+		}
 
 		// Use OpenSSL command-line to generate EC P-256 key (more compatible)
 		$cmd = sprintf(
-			'openssl ecparam -name prime256v1 -genkey -noout -out %s 2>/dev/null',
+			'umask 077 && openssl ecparam -name prime256v1 -genkey -noout -out %s 2>/dev/null',
 			escapeshellarg($private_key_path)
 		);
 		$exec_result = exec($cmd, $output, $return_code);
 
 		if ($return_code !== 0 || !file_exists($private_key_path)) {
-			// Fallback: try to use PHP's openssl_pkey_new with P-384
-			// Note: P-384 uses ES384 algorithm, not ES256
+			// Fallback: use PHP's openssl_pkey_new with the P-256 curve required by ES256
 			$config_array = array(
-				"private_key_bits" => 384,
 				"private_key_type" => OPENSSL_KEYTYPE_EC,
+				"curve_name" => "prime256v1",
 				"digest_alg" => "sha256"
 			);
 
@@ -723,15 +886,17 @@ class identity {
 						'error' => 'Failed to generate private key (both command-line and PHP methods failed): ' . openssl_error_string()];
 			}
 
-			// Export private key with P-384
+			// Export private key
 			$private_key_pem = '';
 			openssl_pkey_export($private_key, $private_key_pem);
 			if (!file_put_contents($private_key_path, $private_key_pem)) {
 				return ['private_key_path' => '', 'certificate_path' => '',
 						'error' => 'Failed to write private key file'];
 			}
-			chmod($private_key_path, 0600);
 		}
+
+		// Only the web server user may read the private key
+		chmod($private_key_path, 0600);
 
 		// Load the private key for certificate generation
 		$private_key_pem = file_get_contents($private_key_path);
@@ -752,7 +917,7 @@ class identity {
 			'organizationName' => 'Test Organization',
 			'countryName' => 'US',
 			'stateOrProvinceName' => 'Test State'
-		], $private_key);
+		], $private_key, ['digest_alg' => 'sha256']);
 
 		if (!$csr) {
 			openssl_pkey_free($private_key);
@@ -761,7 +926,7 @@ class identity {
 		}
 
 		// Create self-signed certificate (valid for 365 days)
-		$certificate = openssl_csr_sign($csr, null, $private_key, 365, array());
+		$certificate = openssl_csr_sign($csr, null, $private_key, 365, array('digest_alg' => 'sha256'));
 		if (!$certificate) {
 			openssl_pkey_free($private_key);
 			return ['private_key_path' => $private_key_path, 'certificate_path' => '',

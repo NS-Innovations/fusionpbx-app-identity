@@ -48,12 +48,49 @@ curl -X POST \
      http://127.0.0.1/app/identity/sign.php
 ```
 
+## Web interface
+
+Advanced > Identity (superadmin) shows signed and verified call counts by attestation level, activity by hour or day,
+and recent failures. Logs lists every sign and verify result and links to the call detail record.
+
+Setup checks the key, certificate, certificate URL, allowed CIDR and dialplan, and can:
+
+- generate a self-signed test certificate when no key or certificate exists (never replaces existing files)
+- sign a test call and verify it with the local certificate and with the certificate URL
+- add or remove signing on each outbound route
+- add or remove the inbound verification dialplan
+
+Settings stay in `/etc/fusionpbx/config.conf`; Setup shows the values in use but does not write the file.
+
 ## Outbound Routes
 
-Add the following to your outbound route to sign outbound calls.
+Setup adds these actions before the first bridge of the route. To add them by hand:
 ```
 <action application="unset" data="sip_h_Identity"/>
-<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${effective_caller_id_number}&destination=1$1"/>
+<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${effective_caller_id_number}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}"/>
 <action application="export" data="exclude_outgoing_extra_header=sip_h_Identity"/>
 <action application="set" data="sip_h_Identity=${curl_response_data}"/>
 ```
+
+The `export exclude_outgoing_extra_header=sip_h_Identity` line is required. Without it FreeSWITCH sends the header
+twice, and carriers reject the call with `400 Multiple Identity headers`.
+
+`destination` must be the number sent to the carrier. Use `1$1` when the route captures 10 digits and `$1` when it
+captures 11. A 10 digit North American number is given the leading 1 automatically.
+
+If signing fails sign.php returns an empty response, so no Identity header is sent. `domain_uuid` and `call_uuid` are
+optional and are used for the logs.
+
+## Inbound Verification
+
+Setup adds a global `identity-verify` dialplan to the public context:
+```
+<condition field="${sip_identity}" expression="^.+$">
+	<action application="curl" data="http://127.0.0.1/app/identity/verify.php POST identity=${url_encode(${sip_identity})}&call_uuid=${uuid}"/>
+	<action application="set" data="identity_verstat=${curl_response_data}"/>
+</condition>
+```
+
+`identity_verstat` is `TN-Validation-Passed-A`, `-B`, `-C` or `TN-Validation-Failed`. verify.php checks the signature
+against the certificate at the `x5u` URL in the PASSporT; it does not yet validate the certificate chain against the
+STI-PA trust list, so a passed result means the header is intact, not that the signer is authorized.
