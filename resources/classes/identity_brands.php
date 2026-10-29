@@ -31,6 +31,13 @@
 class identity_brands {
 
 	/**
+	 * Largest brands file that will be loaded. sign.php parses the whole file on every call, which takes about
+	 * 4 ms and 5 MB of memory per MB of file, so 8 MB (about 330,000 numbers) stays well inside a 128 MB
+	 * memory_limit.
+	 */
+	const MAX_FILE_SIZE = 8 * 1024 * 1024;
+
+	/**
 	 * Path to the registry file.
 	 *
 	 * @var string
@@ -68,7 +75,12 @@ class identity_brands {
 		if (!file_exists($this->file_path)) {
 			return true;
 		}
-		$json = file_get_contents($this->file_path);
+		$size = @filesize($this->file_path);
+		if ($size !== false && $size > self::MAX_FILE_SIZE) {
+			$this->error_message = $this->file_path . ' is larger than ' . self::MAX_FILE_SIZE . ' bytes';
+			return false;
+		}
+		$json = file_get_contents($this->file_path, false, null, 0, self::MAX_FILE_SIZE + 1);
 		if ($json === false) {
 			$this->error_message = 'Unable to read ' . $this->file_path;
 			return false;
