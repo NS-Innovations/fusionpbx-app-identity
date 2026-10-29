@@ -19,6 +19,7 @@ $setting_array['debug'] = $debug;
 // Get the identity header
 if (is_cli()) {
 	$identity_header = $argv[1] ?? '';
+	$format = $argv[2] ?? '';
 	$call_uuid = '';
 	$domain_uuid = '';
 }
@@ -37,6 +38,7 @@ else {
 
 	// Get the variables
 	$identity_header = $_REQUEST['identity'] ?? '';
+	$format = $_REQUEST['format'] ?? '';
 	$call_uuid = $_REQUEST['call_uuid'] ?? '';
 	$domain_uuid = $_REQUEST['domain_uuid'] ?? '';
 }
@@ -52,7 +54,18 @@ $identity = new identity($setting_array);
 
 // Verify the identity header
 $result = $identity->verify($identity_header);
-if ($result === true) {
+
+// JSON output includes Rich Call Data (name, logo, call reason) for display
+if ($format === 'json') {
+	echo json_encode([
+		'verified' => $result,
+		'attest' => $identity->attest_level,
+		'rcd' => (object)$identity->rcd,
+		'crn' => $identity->crn,
+		'error' => ($result || $debug == 'false') ? '' : $identity->error_message,
+	], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+}
+elseif ($result === true) {
 	echo 'TN-Validation-Passed-' . $identity->attest_level;
 } else {
 	if ($debug != 'false') {

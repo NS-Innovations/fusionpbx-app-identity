@@ -41,6 +41,39 @@ class identity {
 	public $certificate_timeout = 2;
 
 	/**
+	 * Rich Call Data claim from a verified PASSporT (empty if none).
+	 *
+	 * @var array
+	 */
+	public $rcd = [];
+
+	/**
+	 * Rich Call Data integrity claim from a verified PASSporT (empty if none).
+	 *
+	 * @var array
+	 */
+	public $rcdi = [];
+
+	/**
+	 * Call reason claim from a verified PASSporT (empty if none).
+	 *
+	 * @var string
+	 */
+	public $crn = '';
+
+	/**
+	 * JSON encoding flags used for PASSporT header, payload and rcdi digests.
+	 * Slashes and unicode are left unescaped so URLs and display names are
+	 * serialized the way RFC 8225 / RFC 9795 examples show them.
+	 */
+	const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+
+	/**
+	 * Maximum display name length allowed in rcd "nam" (BCID allows 35).
+	 */
+	const MAX_NAME_LENGTH = 35;
+
+	/**
 	 * Path to the private key file for signing.
 	 *
 	 * @var string
@@ -143,10 +176,15 @@ class identity {
 	 * @param string $attest_level Attestation level (A, B, or C); uses default if empty
 	 * @param string $origid       Optional originator UUID; generated if empty
 	 * @param int    $iat          Optional issued-at timestamp; uses current time if zero
+	 * @param array  $rich_call_data Optional Rich Call Data (RFC 9795) with keys:
+	 *                               nam (display name), icn (HTTPS logo URL),
+	 *                               icn_digest (precomputed "sha256-..." digest of
+	 *                               the logo bytes; required when icn is set),
+	 *                               crn (call reason for this call)
 	 *
 	 * @return array Array with keys: passport (string), error (string|null)
 	 */
-	public function sign(string $orig_tn, string $dest_tn, string $attest_level = '', string $origid = '', int $iat = 0): array {
+	public function sign(string $orig_tn, string $dest_tn, string $attest_level = '', string $origid = '', int $iat = 0, array $rich_call_data = []): array {
 
 		// Validate inputs
 		if (empty($orig_tn)) {
@@ -175,6 +213,15 @@ class identity {
 		// Build PASSporT payload
 		$payload = $this->build_payload($orig_tn, $dest_tn, $attest_level, $iat, $origid);
 
+		// Add Rich Call Data claims (rcd, rcdi, crn) when provided
+		if (!empty($rich_call_data)) {
+			$rcd_result = $this->build_rich_call_data($rich_call_data);
+			if (!empty($rcd_result['error'])) {
+				return ['passport' => '', 'error' => $rcd_result['error']];
+			}
+			$payload = array_merge($payload, $rcd_result['claims']);
+		}
+
 		// Sign the PASSporT
 		$result = $this->sign_passport($header, $payload);
 
@@ -198,6 +245,9 @@ class identity {
 		// Reset the results from any previous call
 		$this->attest_level = '';
 		$this->passport = ['header' => [], 'payload' => []];
+		$this->rcd = [];
+		$this->rcdi = [];
+		$this->crn = '';
 
 		// Split the token into its 3 parts
 		$parts = preg_split('/\./', $identity_header);
@@ -357,6 +407,15 @@ class identity {
 		// Return result
 		if ($result == 1) {
 			$this->attest_level = $payload_json['attest'];
+			if (isset($payload_json['rcd']) && is_array($payload_json['rcd'])) {
+				$this->rcd = $payload_json['rcd'];
+			}
+			if (isset($payload_json['rcdi']) && is_array($payload_json['rcdi'])) {
+				$this->rcdi = $payload_json['rcdi'];
+			}
+			if (isset($payload_json['crn']) && is_string($payload_json['crn'])) {
+				$this->crn = $payload_json['crn'];
+			}
 			$this->error_message = "";
 			return true;
 		} elseif ($result === 0) {
@@ -366,6 +425,149 @@ class identity {
 			$this->error_message = "Error checking signature.";
 			return false;
 		}
+	}
+
+	/**
+	 * Build the Rich Call Data claims for a PASSporT payload.
+	 *
+	 * Produces the "rcd", "rcdi" and "crn" claims defined in RFC 9795 for use
+	 * inside a SHAKEN PASSporT (RFC 9795 section 13). "rcdi" is only added
+	 * when the rcd contains a URI reference (the logo), because integrity
+	 * protection is required for referenced content. The logo digest must be
+	 * precomputed when the brand is provisioned so no HTTP fetch happens
+	 * during call setup.
+	 *
+	 * @param array $rich_call_data Keys: nam, icn, icn_digest, crn
+	 *
+	 * @return array Array with keys: claims (array), error (string|null)
+	 */
+	public function build_rich_call_data(array $rich_call_data): array {
+		$claims = [];
+		$rcd = [];
+		$rcdi = [];
+
+		$nam = isset($rich_call_data['nam']) ? trim((string)$rich_call_data['nam']) : '';
+		$icn = isset($rich_call_data['icn']) ? trim((string)$rich_call_data['icn']) : '';
+		$icn_digest = isset($rich_call_data['icn_digest']) ? trim((string)$rich_call_data['icn_digest']) : '';
+		$crn = isset($rich_call_data['crn']) ? trim((string)$rich_call_data['crn']) : '';
+
+		// The rcd object requires nam (RFC 9795 section 5.1.1)
+		if ($nam === '' && $icn !== '') {
+			return ['claims' => [], 'error' => 'Rich Call Data logo requires a display name'];
+		}
+
+		if ($nam !== '') {
+			$error = $this->validate_display_name($nam);
+			if ($error !== null) {
+				return ['claims' => [], 'error' => $error];
+			}
+			$rcd['nam'] = $nam;
+		}
+
+		if ($icn !== '') {
+			if (stripos($icn, 'https://') !== 0) {
+				return ['claims' => [], 'error' => 'Rich Call Data logo URL must use https'];
+			}
+			if (!$this->is_valid_digest($icn_digest)) {
+				return ['claims' => [], 'error' => 'Rich Call Data logo digest missing or invalid'];
+			}
+			$rcd['icn'] = $icn;
+			$rcdi['/icn'] = $icn_digest;
+		}
+
+		if (!empty($rcd)) {
+			$claims['rcd'] = $rcd;
+		}
+		if (!empty($rcdi)) {
+			$claims['rcdi'] = $rcdi;
+		}
+
+		if ($crn !== '') {
+			if (self::str_length($crn) > 64 || preg_match('/[\x00-\x1F\x7F]/', $crn)) {
+				return ['claims' => [], 'error' => 'Call reason is too long or contains control characters'];
+			}
+			$claims['crn'] = $crn;
+		}
+
+		return ['claims' => $claims, 'error' => null];
+	}
+
+	/**
+	 * Compute an rcdi digest over raw bytes (e.g. a downloaded logo image).
+	 *
+	 * Format is "<alg>-<base64>" using standard base64 without padding, as in
+	 * the RFC 9795 examples.
+	 *
+	 * @param string $bytes     Raw content
+	 * @param string $algorithm sha256, sha384 or sha512
+	 *
+	 * @return string Digest string such as "sha256-..."
+	 */
+	public static function compute_digest(string $bytes, string $algorithm = 'sha256'): string {
+		if (!in_array($algorithm, ['sha256', 'sha384', 'sha512'], true)) {
+			throw new InvalidArgumentException("Unsupported digest algorithm: {$algorithm}");
+		}
+		return $algorithm . '-' . rtrim(base64_encode(hash($algorithm, $bytes, true)), '=');
+	}
+
+	/**
+	 * Compute an rcdi digest over an inline JSON value (e.g. "/nam").
+	 *
+	 * The value is serialized as compact JSON, so strings include their
+	 * surrounding double quotes (RFC 9795 section 6.1).
+	 *
+	 * @param mixed  $value     JSON value
+	 * @param string $algorithm sha256, sha384 or sha512
+	 *
+	 * @return string Digest string such as "sha256-..."
+	 */
+	public static function compute_json_digest($value, string $algorithm = 'sha256'): string {
+		return self::compute_digest(json_encode($value, self::JSON_FLAGS), $algorithm);
+	}
+
+	/**
+	 * Check that a value looks like an rcdi digest string.
+	 *
+	 * @param string $digest Digest string
+	 *
+	 * @return bool True if the format is valid
+	 */
+	private function is_valid_digest(string $digest): bool {
+		return (bool)preg_match('/^(sha256|sha384|sha512)-[A-Za-z0-9+\/]+={0,2}$/', $digest);
+	}
+
+	/**
+	 * Count characters in a UTF-8 string without requiring mbstring.
+	 *
+	 * @param string $value UTF-8 string
+	 *
+	 * @return int Number of characters
+	 */
+	private static function str_length(string $value): int {
+		if (function_exists('mb_strlen')) {
+			return mb_strlen($value, 'UTF-8');
+		}
+		return (int)preg_match_all('/./us', $value);
+	}
+
+	/**
+	 * Validate a display name for the rcd "nam" claim.
+	 *
+	 * @param string $nam Display name
+	 *
+	 * @return string|null Error message or null when valid
+	 */
+	private function validate_display_name(string $nam): ?string {
+		if (!preg_match('//u', $nam)) {
+			return 'Display name must be valid UTF-8';
+		}
+		if (self::str_length($nam) > self::MAX_NAME_LENGTH) {
+			return 'Display name exceeds ' . self::MAX_NAME_LENGTH . ' characters';
+		}
+		if (preg_match('/[\x00-\x1F\x7F"\\\\]/', $nam)) {
+			return 'Display name contains control characters, quotes or backslashes';
+		}
+		return null;
 	}
 
 	/**
@@ -427,8 +629,8 @@ class identity {
 	 */
 	private function sign_passport(array $header, array $payload): array {
 		// Encode header and payload to base64url
-		$encoded_header = $this->base64_url_encode(json_encode($header));
-		$encoded_payload = $this->base64_url_encode(json_encode($payload));
+		$encoded_header = $this->base64_url_encode(json_encode($header, self::JSON_FLAGS));
+		$encoded_payload = $this->base64_url_encode(json_encode($payload, self::JSON_FLAGS));
 
 		// Create signing input
 		$signing_input = $encoded_header . '.' . $encoded_payload;
