@@ -104,8 +104,18 @@ class identity_brands {
 		ksort($this->data['brands']);
 		ksort($this->data['numbers']);
 		$json = json_encode($this->data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-		$temp_path = $this->file_path . '.tmp' . getmypid();
-		if (file_put_contents($temp_path, $json . "\n", LOCK_EX) === false) {
+		// tempnam() creates a new file with a random name, so a link planted at a predictable name cannot
+		// redirect the write when brand.php runs as root
+		$temp_path = @tempnam(dirname($this->file_path), basename($this->file_path) . '.');
+		if ($temp_path === false || dirname($temp_path) !== dirname($this->file_path)) {
+			if ($temp_path !== false) {
+				@unlink($temp_path);
+			}
+			$this->error_message = 'Unable to create a temporary file in ' . dirname($this->file_path);
+			return false;
+		}
+		if (file_put_contents($temp_path, $json . "\n") === false) {
+			@unlink($temp_path);
 			$this->error_message = 'Unable to write ' . $temp_path;
 			return false;
 		}
