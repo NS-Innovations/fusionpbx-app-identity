@@ -132,14 +132,13 @@ class identity_brands {
 	 *
 	 * @param string $tn Telephone number
 	 *
+	 * Uses identity::normalize_tn() so numbers are stored and looked up the
+	 * same way they are signed in orig.tn.
+	 *
 	 * @return string Digits only; 10 digit NANP numbers get a leading 1
 	 */
 	public static function normalize_tn(string $tn): string {
-		$tn = preg_replace('/[^0-9]/', '', $tn);
-		if (strlen($tn) === 10) {
-			$tn = '1' . $tn;
-		}
-		return $tn;
+		return (new identity())->normalize_tn($tn);
 	}
 
 	/**
