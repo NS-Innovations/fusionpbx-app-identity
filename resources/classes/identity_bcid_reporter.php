@@ -28,7 +28,8 @@ class identity_bcid_reporter {
 	/**
 	 * Record a signed branded call.
 	 *
-	 * Failures are swallowed so reporting can never block call setup.
+	 * Failures never block call setup. They are written to the PHP error log,
+	 * because a missing event is a missing report to the BCID platform.
 	 *
 	 * @param array $event Keys: origid, orig, dest, brand_id, crn, profile, iat
 	 *
@@ -40,6 +41,10 @@ class identity_bcid_reporter {
 		}
 		$event = ['event' => 'signed', 'logged_at' => gmdate('c')] + $event;
 		$line = json_encode($event, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
-		return @file_put_contents($this->log_path, $line, FILE_APPEND | LOCK_EX) !== false;
+		if (@file_put_contents($this->log_path, $line, FILE_APPEND | LOCK_EX) === false) {
+			error_log('identity: unable to write BCID report log ' . $this->log_path . ': ' . $line);
+			return false;
+		}
+		return true;
 	}
 }
