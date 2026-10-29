@@ -129,7 +129,9 @@ php brand.php list
 php brand.php show 12025550100
 ```
 
-The `logo` command downloads the image once and pins its SHA-256 digest, so no HTTP request is made during call setup. If the image at that URL changes, run `php brand.php refresh-logo acme`, or terminating providers will reject the logo.
+The `logo` command downloads the image once over HTTPS (TLS verified, no redirects, at most 2 MB) and pins its SHA-256 digest, so no HTTP request is made during call setup. If the image at that URL changes, run `php brand.php refresh-logo acme`, or terminating providers will reject the logo.
+
+The brands file must be readable by the web server user and no larger than 8 MB (about 330,000 numbers); sign.php reads it on every branded-eligible call. A larger, unreadable or malformed file is ignored and calls are signed without branding.
 
 Only vetted call reasons are signed. A requested reason that is not in the brand's list is replaced by the brand's default reason, or omitted.
 
@@ -139,10 +141,12 @@ Pass a call reason with the `call_reason` parameter (optional):
 
 ```
 <action application="unset" data="sip_h_Identity"/>
-<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${effective_caller_id_number}&destination=1$1&call_reason=${url_encode(${bcid_call_reason})}"/>
+<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${effective_caller_id_number}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}&call_reason=${url_encode(${bcid_call_reason})}"/>
 <action application="export" data="exclude_outgoing_extra_header=sip_h_Identity"/>
 <action application="set" data="sip_h_Identity=${curl_response_data}"/>
 ```
+
+Setup adds signing without `call_reason`; add the parameter to the route by hand if you use call reasons.
 
 From the command line: `php sign.php 12025550100 13105551234 A "Billing question"`
 
@@ -154,6 +158,10 @@ From the command line: `php sign.php 12025550100 13105551234 A "Billing question
 {"verified":true,"attest":"A","rcd":{"nam":"Acme Dental","icn":"https://cdn.example.com/acme.bmp"},"crn":"Billing question","error":""}
 ```
 
+Do not show this Rich Call Data to users yet. verify.php does not validate the signing certificate against the STI-PA
+trust list or check that it is authorized to assert the brand, so anyone can sign a PASSporT with any display name and
+it will verify. The logo digest (`rcdi`) is not checked either.
+
 ### Reporting
 
-Each branded call signed with the BCID profile is written as one JSON line to `identity.bcid.report_log` (origid, iat, orig, dest, brand_id, crn). The BCID platform reporting interface is defined in the BCID participation documents; forward these events to it once that interface is available.
+Each branded call signed with the BCID profile is written as one JSON line to `identity.bcid.report_log` (origid, iat, orig, dest, brand_id, crn). The BCID platform reporting interface is defined in the BCID participation documents; forward these events to it once that interface is available. The log must be writable by the web server user; events that cannot be written are recorded in the PHP error log instead.
