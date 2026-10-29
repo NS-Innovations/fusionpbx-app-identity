@@ -93,6 +93,11 @@
 		$apps[$x]['db'][$y]['fields'][$z]['type'] = "numeric";
 		$apps[$x]['db'][$y]['fields'][$z]['description']['en-us'] = "PASSporT issued at time as a Unix timestamp.";
 		$z++;
+		$apps[$x]['db'][$y]['fields'][$z]['name'] = "identity_log_brand";
+		$apps[$x]['db'][$y]['fields'][$z]['type'] = "text";
+		$apps[$x]['db'][$y]['fields'][$z]['search'] = 'true';
+		$apps[$x]['db'][$y]['fields'][$z]['description']['en-us'] = "Rich Call Data display name (rcd nam) when the call was branded.";
+		$z++;
 		$apps[$x]['db'][$y]['fields'][$z]['name'] = "identity_log_message";
 		$apps[$x]['db'][$y]['fields'][$z]['type'] = "text";
 		$apps[$x]['db'][$y]['fields'][$z]['search'] = 'true';

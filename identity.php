@@ -85,14 +85,15 @@
 		}
 
 		//get the totals by type, status and attestation
-		$sql = "select identity_log_type, identity_log_status, identity_log_attest, count(*) as total ";
+		$sql = "select identity_log_type, identity_log_status, identity_log_attest, count(*) as total, ";
+		$sql .= "count(*) filter (where identity_log_brand is not null and identity_log_brand <> '') as branded ";
 		$sql .= "from v_identity_logs ";
 		$sql .= $sql_where;
 		$sql .= "group by identity_log_type, identity_log_status, identity_log_attest ";
 		$rows = $database->select($sql, $parameters, 'all');
 		unset($sql);
 		foreach (['sign', 'verify'] as $type) {
-			$summary[$type] = ['total' => 0, 'success' => 0, 'failed' => 0, 'A' => 0, 'B' => 0, 'C' => 0];
+			$summary[$type] = ['total' => 0, 'success' => 0, 'failed' => 0, 'A' => 0, 'B' => 0, 'C' => 0, 'branded' => 0];
 		}
 		if (is_array($rows) && @sizeof($rows) != 0) {
 			foreach ($rows as $row) {
@@ -106,6 +107,7 @@
 				}
 				else {
 					$summary[$type]['success'] += $row['total'];
+					$summary[$type]['branded'] += $row['branded'];
 					if (isset($summary[$type][$row['identity_log_attest']])) {
 						$summary[$type][$row['identity_log_attest']] += $row['total'];
 					}
@@ -193,6 +195,7 @@
 	echo "	<th class='center hide-sm-dn'>A</th>\n";
 	echo "	<th class='center hide-sm-dn'>B</th>\n";
 	echo "	<th class='center hide-sm-dn'>C</th>\n";
+	echo "	<th class='center hide-sm-dn'>".$text['label-branded']."</th>\n";
 	echo "	<th class='center'>".$text['label-success_rate']."</th>\n";
 	echo "</tr>\n";
 	foreach ($summary as $type => $row) {
@@ -205,6 +208,7 @@
 		echo "	<td class='center hide-sm-dn'>".number_format($row['A'])."</td>\n";
 		echo "	<td class='center hide-sm-dn'>".number_format($row['B'])."</td>\n";
 		echo "	<td class='center hide-sm-dn'>".number_format($row['C'])."</td>\n";
+		echo "	<td class='center hide-sm-dn'>".number_format($row['branded'])."</td>\n";
 		echo "	<td class='center'>".($row['total'] > 0 ? round($row['success'] / $row['total'] * 100, 1).'%' : '&mdash;')."</td>\n";
 		echo "</tr>\n";
 	}

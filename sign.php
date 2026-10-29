@@ -187,5 +187,6 @@ $identity_logs->add([
 	'identity_log_certificate_url' => $identity->get_config()['certificate_url'],
 	'identity_log_origid' => $payload['origid'] ?? '',
 	'identity_log_iat' => $payload['iat'] ?? '',
+	'identity_log_brand' => $payload['rcd']['nam'] ?? '',
 	'identity_log_message' => $result['error'] ?? '',
 ]);

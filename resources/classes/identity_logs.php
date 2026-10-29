@@ -112,6 +112,7 @@ class identity_logs {
 			$array[$this->table][0]['identity_log_certificate_url'] = substr($log['identity_log_certificate_url'] ?? '', 0, 1024);
 			$array[$this->table][0]['identity_log_origid'] = substr($log['identity_log_origid'] ?? '', 0, 64);
 			$array[$this->table][0]['identity_log_iat'] = is_numeric($iat) ? (int)$iat : null;
+			$array[$this->table][0]['identity_log_brand'] = is_string($log['identity_log_brand'] ?? null) ? mb_substr($log['identity_log_brand'], 0, 64) : null;
 			$array[$this->table][0]['identity_log_message'] = substr($log['identity_log_message'] ?? '', 0, 1024);
 
 			//grant temporary permissions

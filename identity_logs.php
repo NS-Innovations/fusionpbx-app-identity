@@ -43,7 +43,7 @@
 //set variables from http GET parameters
 	$page = is_numeric($_GET['page'] ?? '') ? $_GET['page'] : 0;
 	$order_by = preg_replace('#[^a-zA-Z0-9_\-]#', '', $_GET['order_by'] ?? '');
-	if (!in_array($order_by, ['domain_name', 'insert_date', 'identity_log_type', 'identity_log_status', 'identity_log_attest', 'identity_log_source', 'identity_log_destination', 'identity_log_certificate_url', 'identity_log_message'], true)) {
+	if (!in_array($order_by, ['domain_name', 'insert_date', 'identity_log_type', 'identity_log_status', 'identity_log_attest', 'identity_log_source', 'identity_log_destination', 'identity_log_brand', 'identity_log_certificate_url', 'identity_log_message'], true)) {
 		$order_by = '';
 	}
 	$order = ($_GET['order'] ?? '') === 'asc' ? 'asc' : 'desc';
@@ -116,6 +116,7 @@
 		$sql_where .= "and (";
 		$sql_where .= "	l.identity_log_source like :search ";
 		$sql_where .= "	or l.identity_log_destination like :search ";
+		$sql_where .= "	or lower(l.identity_log_brand) like :search ";
 		$sql_where .= "	or lower(l.identity_log_certificate_url) like :search ";
 		$sql_where .= "	or lower(l.identity_log_origid) like :search ";
 		$sql_where .= "	or lower(l.identity_log_message) like :search ";
@@ -150,7 +151,7 @@
 //get the list
 	$sql = "select l.identity_log_uuid, l.domain_uuid, d.domain_name, l.identity_log_call_uuid, ";
 	$sql .= "l.identity_log_type, l.identity_log_status, l.identity_log_attest, ";
-	$sql .= "l.identity_log_source, l.identity_log_destination, l.identity_log_certificate_url, ";
+	$sql .= "l.identity_log_source, l.identity_log_destination, l.identity_log_brand, l.identity_log_certificate_url, ";
 	$sql .= "l.identity_log_message, l.insert_date, ";
 	$sql .= "to_char(timezone(:time_zone, l.insert_date), 'DD Mon YYYY') as date_formatted, ";
 	$sql .= "to_char(timezone(:time_zone, l.insert_date), '".$time_format."') as time_formatted ";
@@ -237,6 +238,7 @@
 	echo th_order_by('identity_log_attest', $text['label-attest'], $order_by, $order, null, "class='center'", $query_string);
 	echo th_order_by('identity_log_source', $text['label-source'], $order_by, $order, null, null, $query_string);
 	echo th_order_by('identity_log_destination', $text['label-destination'], $order_by, $order, null, null, $query_string);
+	echo th_order_by('identity_log_brand', $text['label-brand'], $order_by, $order, null, "class='hide-sm-dn'", $query_string);
 	echo th_order_by('identity_log_certificate_url', $text['label-certificate_url'], $order_by, $order, null, "class='hide-md-dn'", $query_string);
 	echo th_order_by('identity_log_message', $text['label-message'], $order_by, $order, null, "class='hide-sm-dn'", $query_string);
 	echo "</tr>\n";
@@ -265,6 +267,7 @@
 			echo "	<td class='center'>".escape($row['identity_log_attest'])."&nbsp;</td>\n";
 			echo "	<td>".escape(format_phone($row['identity_log_source']))."&nbsp;</td>\n";
 			echo "	<td>".escape(format_phone($row['identity_log_destination']))."&nbsp;</td>\n";
+			echo "	<td class='hide-sm-dn'>".escape($row['identity_log_brand'])."&nbsp;</td>\n";
 			echo "	<td class='overflow hide-md-dn'>".escape($row['identity_log_certificate_url'])."&nbsp;</td>\n";
 			echo "	<td class='description overflow hide-sm-dn'>".escape($row['identity_log_message'])."&nbsp;</td>\n";
 			echo "</tr>\n";

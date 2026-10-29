@@ -105,6 +105,12 @@ $text['label-source']['en-gb'] = "Source";
 $text['label-destination']['en-us'] = "Destination";
 $text['label-destination']['en-gb'] = "Destination";
 
+$text['label-brand']['en-us'] = "Brand";
+$text['label-brand']['en-gb'] = "Brand";
+
+$text['label-branded']['en-us'] = "Branded";
+$text['label-branded']['en-gb'] = "Branded";
+
 $text['label-certificate_url']['en-us'] = "Certificate URL";
 $text['label-certificate_url']['en-gb'] = "Certificate URL";
 

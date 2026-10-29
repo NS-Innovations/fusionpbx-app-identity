@@ -95,5 +95,6 @@ $identity_logs->add([
 	'identity_log_certificate_url' => is_string($identity->passport['header']['x5u'] ?? null) ? $identity->passport['header']['x5u'] : '',
 	'identity_log_origid' => is_string($payload['origid'] ?? null) ? $payload['origid'] : '',
 	'identity_log_iat' => is_numeric($payload['iat'] ?? null) ? $payload['iat'] : '',
+	'identity_log_brand' => $result === true && is_string($identity->rcd['nam'] ?? null) ? $identity->rcd['nam'] : '',
 	'identity_log_message' => $result === true ? '' : $identity->error_message,
 ]);
