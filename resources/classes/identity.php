@@ -446,10 +446,15 @@ class identity {
 		$rcd = [];
 		$rcdi = [];
 
-		$nam = isset($rich_call_data['nam']) ? trim((string)$rich_call_data['nam']) : '';
-		$icn = isset($rich_call_data['icn']) ? trim((string)$rich_call_data['icn']) : '';
-		$icn_digest = isset($rich_call_data['icn_digest']) ? trim((string)$rich_call_data['icn_digest']) : '';
-		$crn = isset($rich_call_data['crn']) ? trim((string)$rich_call_data['crn']) : '';
+		foreach (['nam', 'icn', 'icn_digest', 'crn'] as $key) {
+			if (isset($rich_call_data[$key]) && !is_string($rich_call_data[$key])) {
+				return ['claims' => [], 'error' => "Rich Call Data {$key} must be a string"];
+			}
+		}
+		$nam = trim($rich_call_data['nam'] ?? '');
+		$icn = trim($rich_call_data['icn'] ?? '');
+		$icn_digest = trim($rich_call_data['icn_digest'] ?? '');
+		$crn = trim($rich_call_data['crn'] ?? '');
 
 		// The rcd object requires nam (RFC 9795 section 5.1.1)
 		if ($nam === '' && $icn !== '') {

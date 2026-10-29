@@ -143,17 +143,22 @@ class identity_brands {
 	public function lookup(string $tn): ?array {
 		$tn = self::normalize_tn($tn);
 		$brand_id = $this->data['numbers'][$tn] ?? null;
-		if ($brand_id === null || !isset($this->data['brands'][$brand_id])) {
+		if ((!is_string($brand_id) && !is_int($brand_id)) || !isset($this->data['brands'][$brand_id])) {
 			return null;
 		}
 		$brand = $this->data['brands'][$brand_id];
-		if (empty($brand['enabled']) || empty($brand['nam'])) {
+		if (!is_array($brand) || empty($brand['enabled']) || empty($brand['nam']) || !is_string($brand['nam'])) {
 			return null;
+		}
+		foreach (['icn', 'icn_digest', 'default_call_reason', 'profile', 'expires'] as $key) {
+			if (isset($brand[$key]) && !is_string($brand[$key])) {
+				return null;
+			}
 		}
 		if (!empty($brand['expires']) && strtotime($brand['expires'] . ' 23:59:59') < time()) {
 			return null;
 		}
-		$brand['brand_id'] = $brand_id;
+		$brand['brand_id'] = (string)$brand_id;
 		return $brand;
 	}
 
@@ -169,12 +174,12 @@ class identity_brands {
 	 * @return string Call reason, or an empty string for none
 	 */
 	public static function resolve_call_reason(array $brand, string $requested = ''): string {
-		$allowed = is_array($brand['call_reasons'] ?? null) ? $brand['call_reasons'] : [];
+		$allowed = is_array($brand['call_reasons'] ?? null) ? array_filter($brand['call_reasons'], 'is_string') : [];
 		$requested = trim($requested);
 		if ($requested !== '' && in_array($requested, $allowed, true)) {
 			return $requested;
 		}
-		$default = trim((string)($brand['default_call_reason'] ?? ''));
+		$default = is_string($brand['default_call_reason'] ?? null) ? trim($brand['default_call_reason']) : '';
 		if ($default !== '' && in_array($default, $allowed, true)) {
 			return $default;
 		}
