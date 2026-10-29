@@ -64,9 +64,18 @@ function brand_logo_digest(string $url): string {
 		'http' => ['timeout' => 15, 'follow_location' => 0, 'ignore_errors' => false],
 		'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
 	]);
-	$bytes = @file_get_contents($url, false, $context, 0, 2 * 1024 * 1024);
+	// Read one byte more than the limit so a larger logo is refused instead of truncated
+	$max_bytes = 2 * 1024 * 1024;
+	$bytes = @file_get_contents($url, false, $context, 0, $max_bytes + 1);
 	if ($bytes === false || $bytes === '') {
 		throw new RuntimeException("Unable to download logo from {$url}");
+	}
+	$status = $http_response_header[0] ?? '';
+	if (!preg_match('/^HTTP\/\S+ 200\b/', $status)) {
+		throw new RuntimeException("Logo URL returned {$status}, expected 200 (redirects are not followed)");
+	}
+	if (strlen($bytes) > $max_bytes) {
+		throw new RuntimeException('Logo is larger than 2 MB');
 	}
 	if (@getimagesizefromstring($bytes) === false) {
 		throw new RuntimeException('Downloaded logo is not a recognized image');
