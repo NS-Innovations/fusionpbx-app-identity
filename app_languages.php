@@ -321,6 +321,9 @@ $text['message-run_upgrade']['en-gb'] = "The v_identity_logs table does not exis
 $text['message-path_missing']['en-us'] = "Directory does not exist:";
 $text['message-path_missing']['en-gb'] = "Directory does not exist:";
 
+$text['message-path_read_only']['en-us'] = "The web server cannot write to the directory, so Import and Generate Test Certificate will fail. If PHP-FPM runs with ProtectSystem, add the directory to ReadWritePaths:";
+$text['message-path_read_only']['en-gb'] = "The web server cannot write to the directory, so Import and Generate Test Certificate will fail. If PHP-FPM runs with ProtectSystem, add the directory to ReadWritePaths:";
+
 $text['message-file_missing']['en-us'] = "File does not exist:";
 $text['message-file_missing']['en-gb'] = "File does not exist:";
 
@@ -411,8 +414,8 @@ $text['message-import_empty']['en-gb'] = "Choose a private key or a certificate 
 $text['message-import_upload']['en-us'] = "The file could not be uploaded. Files must be no larger than 64 KB.";
 $text['message-import_upload']['en-gb'] = "The file could not be uploaded. Files must be no larger than 64 KB.";
 
-$text['message-import_path']['en-us'] = "The certificate directory does not exist or the web server cannot write to it.";
-$text['message-import_path']['en-gb'] = "The certificate directory does not exist or the web server cannot write to it.";
+$text['message-import_path']['en-us'] = "The certificate directory does not exist or the web server cannot write to it. See the Certificate Directory check.";
+$text['message-import_path']['en-gb'] = "The certificate directory does not exist or the web server cannot write to it. See the Certificate Directory check.";
 
 $text['message-import_key_invalid']['en-us'] = "The private key could not be read. It must be in PEM format, and an encrypted key needs the correct passphrase.";
 $text['message-import_key_invalid']['en-gb'] = "The private key could not be read. It must be in PEM format, and an encrypted key needs the correct passphrase.";

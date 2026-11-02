@@ -25,6 +25,26 @@ php core/upgrade/upgrade.php
 The upgrade adds the `v_identity_logs` table, the permissions, the menu item and the identity Default Settings. Log
 out and back in to pick up the new permissions.
 
+Create the certificate directory, owned by the web server user:
+
+```
+install -d -o www-data -g www-data -m 0750 /etc/fusionpbx/certs
+```
+
+The Debian and Ubuntu PHP-FPM service runs with `ProtectSystem=full`, which makes `/etc` read-only for the web
+server even when it owns the directory. Import and Generate Test Certificate then fail, and the Certificate Directory
+check shows a warning. Allow the web server to write to the directory, adjusting the PHP version:
+
+```
+mkdir -p /etc/systemd/system/php8.4-fpm.service.d
+printf '[Service]\nReadWritePaths=/etc/fusionpbx/certs\n' > /etc/systemd/system/php8.4-fpm.service.d/identity.conf
+systemctl daemon-reload
+systemctl restart php8.4-fpm
+```
+
+`ReadWritePaths` adds to the paths the service already allows. Alternatively, copy the key and certificate into the
+directory by hand.
+
 ## Getting Started
 
 Open **Advanced > Identity** and click **Setup**. Work down the page:
@@ -76,7 +96,7 @@ The checks table shows ok, warning or error, with details, for:
 
 - the log table
 - the settings (a warning while they are still read from `config.conf`, see below)
-- the certificate directory
+- the certificate directory: present, and writable by the web server
 - the private key: present, readable, P-256, and permissions
 - the certificate: present, readable, expired, self-signed, or within 30 days of expiry
 - that the key matches the certificate
@@ -152,7 +172,8 @@ key, the certificate, or both.
   current certificate (or the reverse) is refused and nothing is replaced. Import a new pair together.
 - **Backups:** a replaced file is kept as `<name>.<YYYYmmddHHMMSS>.bak` in the same directory (with `-1`, `-2`, …
   added if two imports happen in the same second). You are asked to confirm before files are replaced.
-- **Limits:** each file can be at most 64 KB. The directory must be writable by the web server user.
+- **Limits:** each file can be at most 64 KB. The directory must be writable by the web server (see
+  [Install](#install)).
 
 Import only covers the default certificate. Copy the BCID key and certificate to the certificate directory by hand.
 

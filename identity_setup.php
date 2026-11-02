@@ -273,6 +273,9 @@
 	if (!is_dir($identity_settings['path'])) {
 		$checks[] = [$text['label-check_path'], 'error', $text['message-path_missing'].' '.$identity_settings['path']];
 	}
+	else if (!is_writable($identity_settings['path'])) {
+		$checks[] = [$text['label-check_path'], 'warning', $text['message-path_read_only'].' '.$identity_settings['path']];
+	}
 	else {
 		$checks[] = [$text['label-check_path'], 'ok', $identity_settings['path']];
 	}
