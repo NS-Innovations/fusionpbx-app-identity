@@ -184,4 +184,62 @@ class identity_logs {
 		}
 	}
 
+	/**
+	 * Seconds between two purges started by purge_if_due().
+	 */
+	const purge_interval = 3600;
+
+	/**
+	 * Delete the logs older than the retention period, at most once per purge_interval.
+	 *
+	 * sign.php and verify.php call this after the response was sent, so the maintenance app is not needed. The time of
+	 * the last purge is kept in a file in the system temporary directory, one per system user, so a file left by the
+	 * command line (root) never stops the web server (www-data) from purging. When the file cannot be written the
+	 * purge is skipped rather than run on every call.
+	 *
+	 * @param database $database       Database object
+	 * @param int      $retention_days Days to keep the logs, 0 keeps them forever
+	 *
+	 * @return bool True if a purge ran and succeeded
+	 */
+	public static function purge_if_due(database $database, int $retention_days): bool {
+		if ($retention_days <= 0) {
+			return false;
+		}
+		$user = function_exists('posix_geteuid') ? (string)posix_geteuid() : preg_replace('/[^a-z0-9_-]/i', '', get_current_user());
+		$stamp = sys_get_temp_dir().'/identity_logs_purge_'.$user;
+		$last = @filemtime($stamp);
+		if ($last !== false && time() - $last < self::purge_interval) {
+			return false;
+		}
+		if (!@touch($stamp)) {
+			return false;
+		}
+		return self::purge($database, $retention_days);
+	}
+
+	/**
+	 * Delete the logs older than the retention period.
+	 *
+	 * @param database $database       Database object
+	 * @param int      $retention_days Days to keep the logs, 0 keeps them forever
+	 *
+	 * @return bool True if the delete succeeded
+	 */
+	public static function purge(database $database, int $retention_days): bool {
+		if ($retention_days <= 0) {
+			return false;
+		}
+		$sql = "delete from v_identity_logs ";
+		$sql .= "where insert_date < :cutoff ";
+		$parameters['cutoff'] = date('Y-m-d H:i:sO', time() - $retention_days * 86400);
+		$result = $database->execute($sql, $parameters);
+		unset($sql, $parameters);
+		if ($result === false) {
+			error_log('identity: the logs older than '.$retention_days.' days could not be deleted: '.($database->message['message'] ?? ''));
+			return false;
+		}
+		return true;
+	}
+
 }

@@ -78,6 +78,12 @@ $text['label-setting_debug']['en-gb'] = "Debug";
 $text['description-setting_debug']['en-us'] = "Return error text from sign.php and verify.php instead of the normal response. Leave it off in production.";
 $text['description-setting_debug']['en-gb'] = "Return error text from sign.php and verify.php instead of the normal response. Leave it off in production.";
 
+$text['label-setting_database_retention_days']['en-us'] = "Log Retention (days)";
+$text['label-setting_database_retention_days']['en-gb'] = "Log Retention (days)";
+
+$text['description-setting_database_retention_days']['en-us'] = "Days to keep the identity logs. Older entries are deleted automatically, at most once an hour, by sign.php and verify.php. 0 keeps them forever.";
+$text['description-setting_database_retention_days']['en-gb'] = "Days to keep the identity logs. Older entries are deleted automatically, at most once an hour, by sign.php and verify.php. 0 keeps them forever.";
+
 $text['label-setting_brands_file']['en-us'] = "Brands File";
 $text['label-setting_brands_file']['en-gb'] = "Brands File";
 

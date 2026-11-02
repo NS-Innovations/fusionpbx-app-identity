@@ -84,6 +84,11 @@ The **Logs** and **Setup** buttons open the other pages.
 - sort by any column
 - delete entries
 
+Entries older than the **Log Retention (days)** setting (90 by default) are deleted automatically. sign.php and
+verify.php run the cleanup at most once an hour, after the response is sent, so it never delays a call and does not
+need the maintenance app. The time of the last cleanup is kept in `/tmp/identity_logs_purge_<uid>`. Set it to 0 to
+keep every entry.
+
 A row with a call UUID links to its call detail record. Verify results have no domain because inbound calls are
 verified before the domain is known, so they appear in every domain's view. **Show All** adds the sign results of the
 other domains.
@@ -123,6 +128,7 @@ checked first; an invalid value is listed with a **Back** button that returns to
 | Allowed CIDR | `127.0.0.1/32` | Comma separated IPv4 ranges that can use sign.php and verify.php |
 | Attestation Check | true | Sign with B instead of A when the calling number is not a destination of the domain (see [Attestation](#attestation)) |
 | Debug | false | Return error text instead of the normal response |
+| Log Retention (days) | 90 | Days to keep the identity logs; 0 keeps them forever (see [Logs](#logs)) |
 | Brands File | *(none)* | Brands file for branded calling. Branding is off when empty |
 | BCID Private Key File | `bcid_private.key` | File name of the BCID private key in the certificate directory |
 | BCID Certificate File | `bcid_certificate.pem` | File name of the BCID certificate in the certificate directory |

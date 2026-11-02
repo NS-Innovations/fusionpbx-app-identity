@@ -202,3 +202,6 @@ $identity_logs->add([
 	'identity_log_brand' => $payload['rcd']['nam'] ?? '',
 	'identity_log_message' => !empty($result['error']) ? $result['error'] : $attest_note,
 ]);
+
+// Delete the logs older than the retention period, at most once an hour, after the response was sent
+identity_logs::purge_if_due($database, (int)$identity_settings['database_retention_days']);

@@ -93,6 +93,14 @@
 		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
 		$apps[$x]['default_settings'][$y]['default_setting_description'] = "Return error text from sign.php and verify.php.";
 		$y++;
+		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = "de87d56a-3e51-44e6-a074-7c6ed836fc81";
+		$apps[$x]['default_settings'][$y]['default_setting_category'] = "identity";
+		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "database_retention_days";
+		$apps[$x]['default_settings'][$y]['default_setting_name'] = "numeric";
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = "90";
+		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
+		$apps[$x]['default_settings'][$y]['default_setting_description'] = "Days to keep the identity logs. 0 keeps them forever.";
+		$y++;
 		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = "8dcda27b-415e-4f4b-a425-533d78c67c71";
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = "identity";
 		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "brands_file";
