@@ -77,6 +77,14 @@
 		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
 		$apps[$x]['default_settings'][$y]['default_setting_description'] = "Comma separated IPv4 ranges allowed to use sign.php and verify.php.";
 		$y++;
+		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = "db68c2b5-672f-4c14-b211-99ca81b6a96a";
+		$apps[$x]['default_settings'][$y]['default_setting_category'] = "identity";
+		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "attestation_check";
+		$apps[$x]['default_settings'][$y]['default_setting_name'] = "boolean";
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = "true";
+		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
+		$apps[$x]['default_settings'][$y]['default_setting_description'] = "Sign with B instead of A when the calling number is not an inbound destination of the domain.";
+		$y++;
 		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = "da8e8b9a-9e89-4f96-aa4c-820fdc1e7f36";
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = "identity";
 		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "debug";

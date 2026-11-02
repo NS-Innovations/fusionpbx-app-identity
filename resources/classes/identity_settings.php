@@ -49,6 +49,7 @@ class identity_settings {
 		'certificate_name' => ['uuid' => '3928a771-8f51-488d-aa06-c60326c07425', 'type' => 'text', 'default' => 'identity_certificate.pem', 'config' => 'identity.certificate_name'],
 		'certificate_url' => ['uuid' => '9ccd6f44-0f7d-4734-b1b8-4a322083cfc7', 'type' => 'text', 'default' => '', 'config' => 'identity.certificate_url'],
 		'allowed_cidr' => ['uuid' => 'b3566df4-e1ca-42a9-b194-6ec50edf7fbe', 'type' => 'text', 'default' => '127.0.0.1/32', 'config' => 'identity.allowed_cidr'],
+		'attestation_check' => ['uuid' => 'db68c2b5-672f-4c14-b211-99ca81b6a96a', 'type' => 'boolean', 'default' => 'true', 'config' => 'identity.attestation_check'],
 		'debug' => ['uuid' => 'da8e8b9a-9e89-4f96-aa4c-820fdc1e7f36', 'type' => 'boolean', 'default' => 'false', 'config' => 'identity.debug'],
 		'brands_file' => ['uuid' => '8dcda27b-415e-4f4b-a425-533d78c67c71', 'type' => 'text', 'default' => '', 'config' => 'identity.brands_file'],
 		'bcid_private_key_name' => ['uuid' => '9c5845a3-78ec-4b48-a19e-a38fd399a7f1', 'type' => 'text', 'default' => 'bcid_private.key', 'config' => 'identity.bcid.private_key_name'],
@@ -146,6 +147,7 @@ class identity_settings {
 				case 'allowed_cidr':
 					$valid = $value !== '' && empty(self::invalid_cidr($value));
 					break;
+				case 'attestation_check':
 				case 'debug':
 					$valid = in_array($value, ['true', 'false'], true);
 					break;

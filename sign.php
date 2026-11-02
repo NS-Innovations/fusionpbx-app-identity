@@ -73,6 +73,19 @@ $identity = new identity($setting_array);
 $source_number = $identity->normalize_tn($source_number);
 $destination_number = $identity->normalize_tn($destination_number);
 
+// Full attestation (A) asserts that the domain owns the calling number. When the number is not an inbound destination
+// of the domain, or the domain is not known, sign with partial attestation (B) instead. Not applied on the command line.
+$attest_note = '';
+$attest_level = is_string($attest_level) ? strtoupper(trim($attest_level)) : '';
+if (!is_cli() && $identity_settings['attestation_check'] && $attest_level === 'A') {
+	$numbers = new identity_numbers(['database' => $database]);
+	if (!$numbers->owns($source_number, is_string($domain_uuid) ? $domain_uuid : '')) {
+		$attest_level = 'B';
+		$attest_note = 'Attestation lowered from A to B: the calling number is not a destination of the domain';
+	}
+	unset($numbers);
+}
+
 // Look up a vetted brand for the calling number. Branding requires full (A) attestation.
 // Any error, including a malformed brands file, signs the call without branding.
 $brand = null;
@@ -187,5 +200,5 @@ $identity_logs->add([
 	'identity_log_origid' => $payload['origid'] ?? '',
 	'identity_log_iat' => $payload['iat'] ?? '',
 	'identity_log_brand' => $payload['rcd']['nam'] ?? '',
-	'identity_log_message' => $result['error'] ?? '',
+	'identity_log_message' => !empty($result['error']) ? $result['error'] : $attest_note,
 ]);

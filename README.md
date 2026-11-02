@@ -102,6 +102,7 @@ The checks table shows ok, warning or error, with details, for:
 - that the key matches the certificate
 - the certificate URL: set, reachable, and serving the same certificate
 - the allowed CIDR
+- the attestation check (a warning when it is off)
 - debug mode
 - outbound routes
 - inbound verification
@@ -120,6 +121,7 @@ checked first; an invalid value is listed with a **Back** button that returns to
 | Certificate File | `identity_certificate.pem` | File name of the certificate in the certificate directory |
 | Certificate URL | *(none, required)* | Public http or https URL of the certificate, sent as `x5u` in every signature |
 | Allowed CIDR | `127.0.0.1/32` | Comma separated IPv4 ranges that can use sign.php and verify.php |
+| Attestation Check | true | Sign with B instead of A when the calling number is not a destination of the domain (see [Attestation](#attestation)) |
 | Debug | false | Return error text instead of the normal response |
 | Brands File | *(none)* | Brands file for branded calling. Branding is off when empty |
 | BCID Private Key File | `bcid_private.key` | File name of the BCID private key in the certificate directory |
@@ -207,7 +209,8 @@ signing off a route. Only the routes of the current domain can be changed, unles
 
 - **Destination:** the number sent to the carrier. Setup suggests the end of the first bridge: `1$1` when the route
   captures 10 digits, `$1` when it captures 11. It must have the form `[+][digits]$N`.
-- **Attestation:** A (full), B (partial) or C (gateway). A is the default.
+- **Attestation:** A (full), B (partial) or C (gateway). A is the default. It is the highest level the route signs
+  with; see [Attestation](#attestation).
 
 Adding signing inserts these actions before the first bridge of the route, then rebuilds the route XML and clears the
 dialplan cache:
@@ -226,6 +229,24 @@ editor if you need to change the actions.
 The caller ID, the dialed number and any call reason are URL encoded so they cannot add parameters, such as a call
 reason, to the signing request. Earlier versions sent them without encoding; the upgrade updates those routes,
 including signing actions edited by hand, and prints how many it changed.
+
+### Attestation
+
+The attestation level tells the receiver how much the signer vouches for the calling number:
+
+- **A (full):** the customer is authenticated and is authorized to use the calling number
+- **B (partial):** the customer is authenticated, but the signer cannot confirm the number belongs to them
+- **C (gateway):** the call entered the network from elsewhere, such as an international gateway
+
+Signing A for a number the customer does not own is mis-attestation, which carriers and regulators act on. With the
+**Attestation Check** setting on (the default), a call that the route would sign with A is signed with B unless the
+calling number is an enabled inbound destination of the call's domain. The destination is matched with its prefix
+and area code, so `2025550100` with prefix `1` matches the calling number `12025550100` or `+12025550100`. B and C
+routes are not changed.
+
+A lowered call is logged as signed with B, with the reason in the message. If a customer may use a number that is not
+one of their destinations, for example a number hosted elsewhere with a letter of authorization, add it as an inbound
+destination of their domain, or turn the check off.
 
 ### Inbound Verification
 
@@ -289,7 +310,8 @@ for vetted brands:
 - a logo (`rcd.icn`, with its `rcdi` integrity digest)
 - a call reason (`crn`)
 
-Branding is only added to calls signed with A attestation. Branded calls can use a separate certificate profile
+Branding is only added to calls signed with A attestation, so a calling number lowered to B by the attestation check
+is not branded. Branded calls can use a separate certificate profile
 (for example a BCID certificate), while all other calls keep the default certificate.
 
 To turn it on, set **Brands File** in Setup > Settings. For the BCID profile, also set **BCID Certificate URL** and
@@ -393,7 +415,9 @@ CIDR**, or from the command line.
 | `domain_uuid` | no | Logged with the result |
 | `call_uuid` | no | Logged with the result and used to link to the call detail record |
 
-Numbers are reduced to digits. A 10 digit North American number gets a leading 1. The response is the complete
+Numbers are reduced to digits. A 10 digit North American number gets a leading 1. With the attestation check on, A is
+lowered to B unless `source` is a destination of `domain_uuid`; the check is not applied on the command line. The
+response is the complete
 `Identity` header value. If signing fails the response is empty, so no header is sent and the call still proceeds.
 The response is sent before the log is written, so logging does not delay the call.
 

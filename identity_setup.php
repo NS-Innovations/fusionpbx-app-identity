@@ -359,6 +359,14 @@
 		$checks[] = [$text['label-check_cidr'], 'ok', $identity_settings['allowed_cidr']];
 	}
 
+	//attestation check
+	if (!$identity_settings['attestation_check']) {
+		$checks[] = [$text['label-check_attestation'], 'warning', $text['message-attestation_check_off']];
+	}
+	else {
+		$checks[] = [$text['label-check_attestation'], 'ok', $text['message-attestation_check_on']];
+	}
+
 	//debug
 	if ($identity_settings['debug']) {
 		$checks[] = [$text['label-check_debug'], 'warning', $text['message-debug_enabled']];
@@ -454,10 +462,10 @@
 		echo "<tr>\n";
 		echo "<td width='30%' class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-setting_'.$name]."</td>\n";
 		echo "<td width='70%' class='vtable' align='left'>\n";
-		if ($name == 'debug') {
-			echo "	<select class='formfld' name='identity_debug'>\n";
-			echo "		<option value='false' ".($form[$name] != 'true' ? "selected='selected'" : null).">".$text['label-false']."</option>\n";
+		if (identity_settings::definitions[$name]['type'] == 'boolean') {
+			echo "	<select class='formfld' name='identity_".$name."'>\n";
 			echo "		<option value='true' ".($form[$name] == 'true' ? "selected='selected'" : null).">".$text['label-true']."</option>\n";
+			echo "		<option value='false' ".($form[$name] != 'true' ? "selected='selected'" : null).">".$text['label-false']."</option>\n";
 			echo "	</select>\n";
 		}
 		else {

@@ -57,6 +57,21 @@ $text['label-setting_allowed_cidr']['en-gb'] = "Allowed CIDR";
 $text['description-setting_allowed_cidr']['en-us'] = "Comma separated IPv4 ranges that can use sign.php and verify.php, such as 127.0.0.1/32. Limit it to the FreeSWITCH servers.";
 $text['description-setting_allowed_cidr']['en-gb'] = "Comma separated IPv4 ranges that can use sign.php and verify.php, such as 127.0.0.1/32. Limit it to the FreeSWITCH servers.";
 
+$text['label-setting_attestation_check']['en-us'] = "Attestation Check";
+$text['label-setting_attestation_check']['en-gb'] = "Attestation Check";
+
+$text['description-setting_attestation_check']['en-us'] = "Full attestation (A) asserts that the domain owns the calling number. When true, a call that would be signed with A is signed with B if the calling number is not an enabled inbound destination of the domain. Partial (B) and gateway (C) attestation are not changed.";
+$text['description-setting_attestation_check']['en-gb'] = "Full attestation (A) asserts that the domain owns the calling number. When true, a call that would be signed with A is signed with B if the calling number is not an enabled inbound destination of the domain. Partial (B) and gateway (C) attestation are not changed.";
+
+$text['label-check_attestation']['en-us'] = "Attestation Check";
+$text['label-check_attestation']['en-gb'] = "Attestation Check";
+
+$text['message-attestation_check_on']['en-us'] = "Calls are signed with A only from numbers that are inbound destinations of the domain.";
+$text['message-attestation_check_on']['en-gb'] = "Calls are signed with A only from numbers that are inbound destinations of the domain.";
+
+$text['message-attestation_check_off']['en-us'] = "Calls are signed with the attestation of the route even when the domain does not own the calling number.";
+$text['message-attestation_check_off']['en-gb'] = "Calls are signed with the attestation of the route even when the domain does not own the calling number.";
+
 $text['label-setting_debug']['en-us'] = "Debug";
 $text['label-setting_debug']['en-gb'] = "Debug";
 
