@@ -20,6 +20,9 @@
 		$apps[$x]['permissions'][$y]['name'] = "identity_setup";
 		$apps[$x]['permissions'][$y]['groups'][] = "superadmin";
 		$y++;
+		$apps[$x]['permissions'][$y]['name'] = "identity_setup_all";
+		$apps[$x]['permissions'][$y]['groups'][] = "superadmin";
+		$y++;
 		$apps[$x]['permissions'][$y]['name'] = "identity_log_view";
 		$apps[$x]['permissions'][$y]['groups'][] = "superadmin";
 		$y++;

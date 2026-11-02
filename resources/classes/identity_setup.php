@@ -50,14 +50,10 @@ class identity_setup {
 	const local_url = 'http://127.0.0.1/app/identity';
 
 	/**
-	 * Source parameter of the signing request. The caller ID is URL encoded so it cannot add parameters to the request.
+	 * Parameters of the signing request that take caller controlled values (caller ID, dialed digits, call reason). They
+	 * are URL encoded so they cannot add parameters to the request.
 	 */
-	const sign_source = 'source=${url_encode(${effective_caller_id_number})}';
-
-	/**
-	 * Source parameter added by earlier versions, without URL encoding. upgrade_signing() replaces it.
-	 */
-	const sign_source_legacy = 'source=${effective_caller_id_number}&';
+	const encoded_parameters = ['source', 'destination', 'call_reason'];
 
 	/**
 	 * Set in the constructor. Must be a database object and cannot be null.
@@ -421,8 +417,8 @@ class identity_setup {
 			$row['attest_level'] = 'A';
 			if (isset($signing[$uuid])) {
 				//show the values currently in use
-				if (preg_match('/[?&\s]destination=([^&\s]*)/', $signing[$uuid], $matches)) {
-					$row['destination'] = $matches[1];
+				if (preg_match('/[?&\s]destination=(?:\$\{url_encode\(([^&\s]*)\)\}|([^&\s]*))/', $signing[$uuid], $matches)) {
+					$row['destination'] = ($matches[1] ?? '') !== '' ? $matches[1] : ($matches[2] ?? '');
 				}
 				if (preg_match('/[?&\s]attest_level=([ABC])/', $signing[$uuid], $matches)) {
 					$row['attest_level'] = $matches[1];
@@ -506,10 +502,10 @@ class identity_setup {
 		}
 
 		//the actions to add
-		$data = self::sign_source.'&destination='.$destination.'&attest_level='.$attest_level.'&domain_uuid=${domain_uuid}&call_uuid=${uuid}';
+		$data = 'source=${effective_caller_id_number}&destination='.$destination.'&attest_level='.$attest_level.'&domain_uuid=${domain_uuid}&call_uuid=${uuid}';
 		$actions = [
 			['unset', 'sip_h_Identity'],
-			['curl', self::local_url.'/sign.php POST '.$data],
+			['curl', self::encode_signing_data(self::local_url.'/sign.php POST '.$data)],
 			['export', 'exclude_outgoing_extra_header=sip_h_Identity'],
 			['set', 'sip_h_Identity=${curl_response_data}'],
 		];
@@ -614,10 +610,37 @@ class identity_setup {
 	}
 
 	/**
-	 * URL encode the caller ID in the signing actions added by earlier versions.
+	 * URL encode the caller controlled values of a signing action.
 	 *
-	 * Earlier versions sent source=${effective_caller_id_number} without encoding, so a caller ID could add parameters
-	 * to the sign.php request. Runs on upgrade for the routes of every domain and rebuilds the XML of each route changed.
+	 * Wraps the source, destination and call_reason values of the POST data in ${url_encode(...)} unless they already
+	 * are, whatever their order, so neither the caller ID nor the dialed digits nor the call reason can add parameters
+	 * to the sign.php request. FreeSWITCH substitutes the route captures ($1) before the url_encode API runs.
+	 *
+	 * @param string $data Data of the curl action, "<url> POST <parameters>"
+	 *
+	 * @return string The data with the values encoded
+	 */
+	public static function encode_signing_data(string $data): string {
+		$position = strpos($data, ' POST ');
+		if ($position === false) {
+			return $data;
+		}
+		$parameters = explode('&', substr($data, $position + 6));
+		foreach ($parameters as $i => $parameter) {
+			[$name, $value] = array_pad(explode('=', $parameter, 2), 2, null);
+			if ($value === null || $value === '' || !in_array($name, self::encoded_parameters, true) || strpos($value, '${url_encode(') === 0) {
+				continue;
+			}
+			$parameters[$i] = $name.'=${url_encode('.$value.')}';
+		}
+		return substr($data, 0, $position + 6).implode('&', $parameters);
+	}
+
+	/**
+	 * URL encode the caller controlled values in the signing actions added by earlier versions or by hand.
+	 *
+	 * Earlier versions sent the caller ID and the dialed digits without encoding, so either could add parameters to
+	 * the sign.php request. Runs on upgrade for the routes of every domain and rebuilds the XML of each route changed.
 	 *
 	 * @return int Number of routes updated
 	 */
@@ -636,17 +659,18 @@ class identity_setup {
 			return 0;
 		}
 
-		//replace the source parameter
+		//encode the values
 		$x = 0;
 		$array = [];
 		$dialplans = [];
 		foreach ($rows as $row) {
-			if (strpos($row['dialplan_detail_data'], self::sign_source_legacy) === false) {
+			$data = self::encode_signing_data($row['dialplan_detail_data']);
+			if ($data === $row['dialplan_detail_data']) {
 				continue;
 			}
 			$array['dialplan_details'][$x]['dialplan_detail_uuid'] = $row['dialplan_detail_uuid'];
 			$array['dialplan_details'][$x]['dialplan_uuid'] = $row['dialplan_uuid'];
-			$array['dialplan_details'][$x]['dialplan_detail_data'] = str_replace(self::sign_source_legacy, self::sign_source.'&', $row['dialplan_detail_data']);
+			$array['dialplan_details'][$x]['dialplan_detail_data'] = $data;
 			$dialplans[$row['dialplan_uuid']] = $row['dialplan_context'];
 			$x++;
 		}

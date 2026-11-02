@@ -41,7 +41,7 @@
 
 //set the defaults
 	$show = $_GET["show"] ?? '';
-	$show_all = $show == 'all' && permission_exists('identity_log_all');
+	$show_all = $show == 'all' && permission_exists('identity_setup_all');
 	$setup = new identity_setup(['database' => $database, 'config' => $config, 'domain_uuid' => $domain_uuid]);
 	$settings_manager = new identity_settings(['database' => $database, 'config' => $config]);
 	$identity_settings = $settings_manager->get();
@@ -149,9 +149,8 @@
 						$test['local'] = $identity->verify($test['header'], $status['certificate']['pem']);
 						$test['local_message'] = $test['local'] ? $text['label-attest'].' '.$identity->attest_level : $identity->error_message;
 
-						//verify the same way a carrier would, by downloading the certificate URL, which the administrator set
+						//verify the same way a carrier would, by downloading the certificate URL with the same restrictions
 						if (!empty($identity_settings['certificate_url'])) {
-							$identity->allow_local_certificate_url = true;
 							$test['remote'] = $identity->verify($test['header']);
 							$test['remote_message'] = $test['remote'] ? $text['label-attest'].' '.$identity->attest_level : $identity->error_message;
 						}
@@ -227,19 +226,19 @@
 	$key = $status['private_key'];
 	$certificate = $status['certificate'];
 
-//compare the certificate URL with the local certificate
+//compare the certificate URL with the local certificate, downloaded with the restrictions receivers use and without the cache
 	$url_fingerprint = '';
 	$url_error = '';
 	$url_scheme = strtolower(parse_url($identity_settings['certificate_url'], PHP_URL_SCHEME) ?? '');
 	if (!empty($identity_settings['certificate_url']) && in_array($url_scheme, ['http', 'https'], true)) {
-		$url_pem = $identity->fetch_certificate($identity_settings['certificate_url'], true);
+		$url_pem = $identity->fetch_certificate($identity_settings['certificate_url'], false);
 		if ($url_pem === false) {
-			$url_error = $text['message-url_unreachable'];
+			$url_error = $text['message-url_unreachable'].' '.$identity->error_message;
 		}
 		else {
 			$url_certificate = @openssl_x509_read($url_pem);
 			if ($url_certificate === false) {
-				$url_error = $text['message-url_not_certificate'];
+				$url_error = $text['message-url_not_certificate'].' '.$identity_settings['certificate_url'];
 			}
 			else {
 				$url_fingerprint = openssl_x509_fingerprint($url_certificate, 'sha256');
@@ -337,7 +336,7 @@
 		$checks[] = [$text['label-check_certificate_url'], 'error', $text['message-url_scheme'].' '.$identity_settings['certificate_url']];
 	}
 	else if (!empty($url_error)) {
-		$checks[] = [$text['label-check_certificate_url'], 'error', $url_error.' '.$identity_settings['certificate_url']];
+		$checks[] = [$text['label-check_certificate_url'], 'error', $url_error];
 	}
 	else if (!empty($local_fingerprint) && $url_fingerprint != $local_fingerprint) {
 		$checks[] = [$text['label-check_certificate_url'], 'error', $text['message-url_mismatch'].' '.$identity_settings['certificate_url']];
@@ -394,7 +393,7 @@
 	echo "	<div class='heading'><b>".$text['title-identity_setup']."</b></div>\n";
 	echo "	<div class='actions'>\n";
 	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'btn_back','link'=>'identity.php']);
-	if (!$show_all && permission_exists('identity_log_all')) {
+	if (!$show_all && permission_exists('identity_setup_all')) {
 		echo button::create(['type'=>'button','label'=>$text['button-show_all'],'icon'=>$settings->get('theme', 'button_icon_all'),'link'=>'?show=all']);
 	}
 	echo button::create(['type'=>'button','label'=>$text['button-refresh'],'icon'=>$settings->get('theme', 'button_icon_refresh'),'id'=>'btn_refresh','style'=>'margin-left: 15px;','link'=>'identity_setup.php'.($show_all ? '?show=all' : '')]);

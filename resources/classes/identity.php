@@ -41,19 +41,22 @@ class identity {
 	public $certificate_timeout = 2;
 
 	/**
-	 * Allow the certificate URL to use http and a private or local address.
-	 *
-	 * Only for a URL the administrator configured, such as the Setup test. It must stay false for the x5u of inbound
-	 * calls, which comes from the caller.
-	 *
-	 * @var bool
-	 */
-	public $allow_local_certificate_url = false;
-
-	/**
 	 * Largest certificate download accepted. A certificate with its chain is a few KB.
 	 */
 	const MAX_CERTIFICATE_SIZE = 65536;
+
+	/**
+	 * Address ranges a certificate URL may never connect to: private, loopback, link-local, shared (CGNAT), benchmark,
+	 * multicast, reserved and documentation ranges, and IPv6 transition ranges that can wrap any IPv4 address (6to4,
+	 * Teredo, NAT64). Checked in addition to FILTER_FLAG_GLOBAL_RANGE, which misses some of them.
+	 */
+	const BLOCKED_RANGES = [
+		'0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24',
+		'192.0.2.0/24', '192.88.99.0/24', '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24',
+		'224.0.0.0/4', '240.0.0.0/4',
+		'::/127', '64:ff9b::/96', '64:ff9b:1::/48', '100::/64', '2001::/23', '2001:db8::/32', '2002::/16', 'fc00::/7',
+		'fe80::/10', 'ff00::/8',
+	];
 
 	/**
 	 * Seconds a verified PASSporT may be older or newer than the local clock (ATIS-1000074 freshness).
@@ -307,7 +310,7 @@ class identity {
 
 		// Decode payload
 		$payload_json = json_decode($payload, true);
-		if (json_last_error() !== JSON_ERROR_NONE) {
+		if (json_last_error() !== JSON_ERROR_NONE || !is_array($payload_json)) {
 			$this->error_message = "Decode payload failed: " . json_last_error_msg();
 			return false;
 		}
@@ -347,29 +350,10 @@ class identity {
 			return false;
 		}
 
-		// Get the certificate from the header
+		// Get the certificate URL from the header
 		$header_certificate_url = $header_json['x5u'];
-		$this->error_message = "Certificate URL: " . $header_certificate_url;
-
-		// Use the provided certificate or download it from the header URL
-		if (!empty($certificate_pem)) {
-			$header_certificate_string = $certificate_pem;
-		} else {
-			// The URL comes from the caller: fetch_certificate() limits it to https on a public address
-			if (!is_string($header_certificate_url)) {
-				$this->error_message = "Verify certificate URL invalid";
-				return false;
-			}
-			$header_certificate_string = $this->fetch_certificate($header_certificate_url, $this->allow_local_certificate_url);
-			if ($header_certificate_string === false) {
-				return false;
-			}
-		}
-
-		// Decode payload
-		$payload_json = json_decode($payload, true);
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			$this->error_message = "Decode payload failed: " . json_last_error_msg();
+		if (!is_string($header_certificate_url)) {
+			$this->error_message = "Verify certificate URL invalid";
 			return false;
 		}
 
@@ -379,10 +363,30 @@ class identity {
 			return false;
 		}
 
-		// Freshness: refuse a PASSporT issued too long ago or in the future, so a captured header cannot be replayed
+		// Freshness: refuse a PASSporT issued too long ago or in the future, before anything is downloaded
 		if (!is_int($payload_json['iat'] ?? null) || abs(time() - $payload_json['iat']) > self::MAX_PASSPORT_AGE) {
 			$this->error_message = "PASSporT iat is missing or more than " . self::MAX_PASSPORT_AGE . " seconds from the current time";
 			return false;
+		}
+
+		// Replay: refuse a signature already verified within the freshness window (needs APCu, shared by the PHP-FPM workers)
+		$replay_key = 'identity_replay_' . hash('sha256', $signature);
+		$replay_cache = empty($certificate_pem) && function_exists('apcu_enabled') && apcu_enabled();
+		if ($replay_cache && apcu_exists($replay_key)) {
+			$this->error_message = "PASSporT was already used for another call";
+			return false;
+		}
+
+		// Use the provided certificate or download it from the header URL
+		if (!empty($certificate_pem)) {
+			$header_certificate_string = $certificate_pem;
+		}
+		else {
+			// The URL comes from the caller: fetch_certificate() limits it to https on a public address
+			$header_certificate_string = $this->fetch_certificate($header_certificate_url);
+			if ($header_certificate_string === false) {
+				return false;
+			}
 		}
 
 		// Verify signature - The JWT signature is computed over ASCII(base64url(header) || '.' || base64url(payload))
@@ -440,12 +444,17 @@ class identity {
 			if (isset($payload_json['crn']) && is_string($payload_json['crn'])) {
 				$this->crn = $payload_json['crn'];
 			}
+			if ($replay_cache) {
+				apcu_add($replay_key, 1, 2 * self::MAX_PASSPORT_AGE);
+			}
 			$this->error_message = "";
 			return true;
-		} elseif ($result === 0) {
+		}
+		elseif ($result === 0) {
 			$this->error_message = "Signature is invalid.";
 			return false;
-		} else {
+		}
+		else {
 			$this->error_message = "Error checking signature.";
 			return false;
 		}
@@ -721,31 +730,33 @@ class identity {
 	/**
 	 * Download a certificate from a URL.
 	 *
-	 * The x5u URL of an inbound call comes from the caller, so by default only https is allowed, every address the
-	 * host resolves to must be public, and the connection is pinned to the checked address so DNS cannot change it
-	 * afterwards. Redirects and proxies are never used, the download stops at MAX_CERTIFICATE_SIZE, and only HTTP 200
-	 * is accepted. Certificates are cached in APCu for CERTIFICATE_CACHE_TTL seconds when it is available.
+	 * The x5u URL of an inbound call comes from the caller, so only https is allowed and the connection may only be to
+	 * a public address (see is_public_address()). curl resolves the host within the timeout and the address is checked
+	 * after it connects but before any request is sent (CURLOPT_PREREQFUNCTION, PHP 8.4 and later), so DNS cannot
+	 * point it elsewhere afterwards. Before PHP 8.4 the host is resolved and checked first and the connection pinned
+	 * to the checked address; that lookup is not limited by the timeout. Redirects and proxies are never used, the
+	 * download stops at MAX_CERTIFICATE_SIZE, and only HTTP 200 is accepted. Certificates are cached in APCu for
+	 * CERTIFICATE_CACHE_TTL seconds when it is available.
 	 *
-	 * @param string $url     Certificate URL
-	 * @param bool   $trusted True for a URL the administrator configured: http and private addresses are allowed, and
-	 *                        the cache is not used
+	 * @param string $url       Certificate URL
+	 * @param bool   $use_cache Use and fill the APCu cache
 	 *
 	 * @return string|false The downloaded content, or false with error_message set
 	 */
-	public function fetch_certificate(string $url, bool $trusted = false) {
+	public function fetch_certificate(string $url, bool $use_cache = true) {
 		// Check the URL
 		$parts = parse_url($url);
 		$scheme = strtolower($parts['scheme'] ?? '');
 		$host = strtolower(trim($parts['host'] ?? '', '[]'));
-		if ($host === '' || isset($parts['user']) || isset($parts['pass']) || !in_array($scheme, $trusted ? ['http', 'https'] : ['https'], true)) {
-			$this->error_message = "Certificate URL must be " . ($trusted ? "http or https" : "https") . ": " . $url;
+		if ($host === '' || $scheme !== 'https' || isset($parts['user']) || isset($parts['pass'])) {
+			$this->error_message = "Certificate URL must be an https URL without a user name: " . $url;
 			return false;
 		}
-		$port = (int)($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+		$port = (int)($parts['port'] ?? 443);
 
 		// Use the cached certificate
 		$cache_key = 'identity_x5u_' . hash('sha256', $url);
-		$apcu = !$trusted && function_exists('apcu_enabled') && apcu_enabled();
+		$apcu = $use_cache && function_exists('apcu_enabled') && apcu_enabled();
 		if ($apcu) {
 			$cached = apcu_fetch($cache_key, $found);
 			if ($found && is_string($cached)) {
@@ -758,14 +769,27 @@ class identity {
 			return false;
 		}
 
-		// Resolve the host and refuse private, local and reserved addresses
-		$resolve = [];
-		if (!$trusted) {
-			if (filter_var($host, FILTER_VALIDATE_IP)) {
-				$addresses = [$host];
-			}
-			else {
-				$addresses = gethostbynamel($host) ?: [];
+		// Refuse an address in the URL itself without connecting
+		if (filter_var($host, FILTER_VALIDATE_IP) && !self::is_public_address($host)) {
+			$this->error_message = "Certificate URL must use a public address: " . $url;
+			return false;
+		}
+
+		// Check the address curl connects to before the request is sent, or resolve and pin it first on older PHP
+		$blocked = false;
+		$options = [];
+		if (defined('CURLOPT_PREREQFUNCTION')) {
+			$options[CURLOPT_PREREQFUNCTION] = function ($ch, $primary_ip, $local_ip, $primary_port, $local_port) use (&$blocked) {
+				if (!self::is_public_address((string)$primary_ip)) {
+					$blocked = true;
+					return CURL_PREREQFUNC_ABORT;
+				}
+				return CURL_PREREQFUNC_OK;
+			};
+		}
+		else {
+			$addresses = filter_var($host, FILTER_VALIDATE_IP) ? [$host] : (gethostbynamel($host) ?: []);
+			if (!filter_var($host, FILTER_VALIDATE_IP)) {
 				foreach (@dns_get_record($host, DNS_AAAA) ?: [] as $record) {
 					if (!empty($record['ipv6'])) {
 						$addresses[] = $record['ipv6'];
@@ -777,25 +801,23 @@ class identity {
 				return false;
 			}
 			foreach ($addresses as $address) {
-				if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+				if (!self::is_public_address($address)) {
 					$this->error_message = "Certificate URL must use a public address: " . $url;
 					return false;
 				}
 			}
-			$address = $addresses[0];
-			$resolve = [$host . ':' . $port . ':' . (strpos($address, ':') !== false ? '[' . $address . ']' : $address)];
+			$options[CURLOPT_RESOLVE] = [$host . ':' . $port . ':' . (strpos($addresses[0], ':') !== false ? '[' . $addresses[0] . ']' : $addresses[0])];
 		}
 
 		// Download, stopping when the response is larger than a certificate can be
 		$body = '';
 		$too_large = false;
 		$ch = curl_init($url);
-		curl_setopt_array($ch, [
-			CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+		curl_setopt_array($ch, $options + [
+			CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
 			CURLOPT_REDIR_PROTOCOLS => 0,
 			CURLOPT_FOLLOWLOCATION => false,
 			CURLOPT_PROXY => '',
-			CURLOPT_RESOLVE => $resolve,
 			CURLOPT_CONNECTTIMEOUT => $this->certificate_timeout,
 			CURLOPT_TIMEOUT => $this->certificate_timeout,
 			CURLOPT_SSL_VERIFYPEER => true,
@@ -811,13 +833,18 @@ class identity {
 		]);
 		$result = curl_exec($ch);
 		$status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+		$curl_error = curl_error($ch);
 		curl_close($ch);
+		if ($blocked) {
+			$this->error_message = "Certificate URL must use a public address: " . $url;
+			return false;
+		}
 		if ($too_large) {
 			$this->error_message = "Certificate download is larger than " . self::MAX_CERTIFICATE_SIZE . " bytes: " . $url;
 			return false;
 		}
 		if ($result === false || $status !== 200 || $body === '') {
-			$this->error_message = "Failed to download certificate from: " . $url;
+			$this->error_message = "Failed to download certificate from: " . $url . ($curl_error !== '' ? " (" . $curl_error . ")" : ($status ? " (HTTP " . $status . ")" : ""));
 			return false;
 		}
 
@@ -828,6 +855,49 @@ class identity {
 		while (openssl_error_string()) {}
 
 		return $body;
+	}
+
+	/**
+	 * Check that an address is public, so a certificate URL from a caller cannot reach internal services.
+	 *
+	 * An IPv4-mapped IPv6 address is checked as its IPv4 address.
+	 *
+	 * @param string $ip IPv4 or IPv6 address
+	 *
+	 * @return bool True if the address is public
+	 */
+	public static function is_public_address(string $ip): bool {
+		$binary = @inet_pton($ip);
+		if ($binary === false) {
+			return false;
+		}
+		if (strlen($binary) == 16 && substr($binary, 0, 12) === str_repeat("\0", 10) . "\xff\xff") {
+			return self::is_public_address(inet_ntop(substr($binary, 12)));
+		}
+		$flags = defined('FILTER_FLAG_GLOBAL_RANGE') ? FILTER_FLAG_GLOBAL_RANGE : (FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+		if (filter_var($ip, FILTER_VALIDATE_IP, $flags) === false) {
+			return false;
+		}
+		foreach (self::BLOCKED_RANGES as $range) {
+			[$network, $bits] = explode('/', $range);
+			$network = inet_pton($network);
+			if (strlen($network) !== strlen($binary)) {
+				continue;
+			}
+			$bytes = intdiv((int)$bits, 8);
+			$remainder = (int)$bits % 8;
+			if (substr($binary, 0, $bytes) !== substr($network, 0, $bytes)) {
+				continue;
+			}
+			if ($remainder == 0) {
+				return false;
+			}
+			$mask = (0xff << (8 - $remainder)) & 0xff;
+			if ((ord($binary[$bytes]) & $mask) === (ord($network[$bytes]) & $mask)) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/**
@@ -1251,12 +1321,14 @@ class identity {
 		// Load the private key for certificate generation
 		$private_key_pem = file_get_contents($private_key_path);
 		if (!$private_key_pem) {
+			@unlink($private_key_path);
 			return ['private_key_path' => '', 'certificate_path' => '',
 					'error' => 'Failed to read generated private key'];
 		}
 
 		$private_key = openssl_pkey_get_private($private_key_pem);
 		if (!$private_key) {
+			@unlink($private_key_path);
 			return ['private_key_path' => '', 'certificate_path' => '',
 					'error' => 'Failed to load private key: ' . openssl_error_string()];
 		}
@@ -1270,17 +1342,19 @@ class identity {
 		], $private_key, ['digest_alg' => 'sha256']);
 
 		if (!$csr) {
-			openssl_pkey_free($private_key);
-			return ['private_key_path' => $private_key_path, 'certificate_path' => '',
-					'error' => 'Failed to generate CSR: ' . openssl_error_string()];
+			$error = openssl_error_string();
+			@unlink($private_key_path);
+			return ['private_key_path' => '', 'certificate_path' => '',
+					'error' => 'Failed to generate CSR: ' . $error];
 		}
 
 		// Create self-signed certificate (valid for 365 days)
 		$certificate = openssl_csr_sign($csr, null, $private_key, 365, array('digest_alg' => 'sha256'));
 		if (!$certificate) {
-			openssl_pkey_free($private_key);
-			return ['private_key_path' => $private_key_path, 'certificate_path' => '',
-					'error' => 'Failed to sign certificate: ' . openssl_error_string()];
+			$error = openssl_error_string();
+			@unlink($private_key_path);
+			return ['private_key_path' => '', 'certificate_path' => '',
+					'error' => 'Failed to sign certificate: ' . $error];
 		}
 
 		openssl_pkey_free($private_key);
@@ -1288,7 +1362,10 @@ class identity {
 		// Export certificate
 		$certificate_pem = openssl_x509_export($certificate, $cert_str);
 		if (!file_put_contents($certificate_path, $cert_str)) {
-			return ['private_key_path' => $private_key_path, 'certificate_path' => '',
+			// Remove both so Generate can be tried again
+			@unlink($certificate_path);
+			@unlink($private_key_path);
+			return ['private_key_path' => '', 'certificate_path' => '',
 					'error' => 'Failed to write certificate file'];
 		}
 

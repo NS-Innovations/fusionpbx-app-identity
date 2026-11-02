@@ -36,12 +36,12 @@
 		unset($identity_settings, $copied);
 	}
 
-//url encode the caller id in the outbound routes signed by earlier versions, once rather than for every domain
+//url encode the caller id and dialed number in the outbound routes signed by earlier versions, once rather than for every domain
 	if ($domains_processed == 1) {
 		$identity_setup = new identity_setup(['database' => $database, 'domain_uuid' => '']);
 		$updated = $identity_setup->upgrade_signing();
 		if ($updated > 0) {
-			echo "[ Identity ] URL encoded the caller ID in the signing actions of ".$updated." outbound route(s).\n";
+			echo "[ Identity ] URL encoded the caller ID and dialed number in the signing actions of ".$updated." outbound route(s).\n";
 		}
 		unset($identity_setup, $updated);
 	}

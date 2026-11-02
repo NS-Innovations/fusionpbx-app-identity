@@ -192,7 +192,8 @@ Enter a calling number, a called number and an attestation level, then click **T
 
 - the `Identity` header, or the signing error
 - the result of verifying it with the local certificate
-- the result of verifying it by downloading the certificate URL, the way a carrier would
+- the result of verifying it by downloading the certificate URL with the same restrictions as inbound verification,
+  so an http, redirecting or private URL fails here the way it fails at a receiver running this app
 
 Nothing is logged.
 
@@ -202,7 +203,7 @@ Each outbound route with a bridge is listed with whether it signs calls. For a r
 **Destination** and **Attestation**, then click **Add**. **Add All** does the same for every unsigned route in the
 list, using the values in each row. It then reports how many routes were signed and how many failed. **Remove** takes
 signing off a route. Only the routes of the current domain can be changed, unless **Show All** is used, which needs the
-`identity_log_all` permission.
+`identity_setup_all` permission.
 
 - **Destination:** the number sent to the carrier. Setup suggests the end of the first bridge: `1$1` when the route
   captures 10 digits, `$1` when it captures 11. It must have the form `[+][digits]$N`.
@@ -213,7 +214,7 @@ dialplan cache:
 
 ```
 <action application="unset" data="sip_h_Identity"/>
-<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}"/>
+<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=${url_encode(1$1)}&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}"/>
 <action application="export" data="exclude_outgoing_extra_header=sip_h_Identity"/>
 <action application="set" data="sip_h_Identity=${curl_response_data}"/>
 ```
@@ -222,8 +223,9 @@ The `export exclude_outgoing_extra_header=sip_h_Identity` line is required. With
 twice, and carriers reject the call with `400 Multiple Identity headers`. The route name links to the dialplan
 editor if you need to change the actions.
 
-The caller ID is URL encoded so it cannot add parameters, such as a call reason, to the signing request. Earlier
-versions sent it without encoding; the upgrade updates those routes and prints how many it changed.
+The caller ID, the dialed number and any call reason are URL encoded so they cannot add parameters, such as a call
+reason, to the signing request. Earlier versions sent them without encoding; the upgrade updates those routes,
+including signing actions edited by hand, and prints how many it changed.
 
 ### Inbound Verification
 
@@ -247,17 +249,21 @@ in the dialplan editor and **Remove** deletes it.
 
 Use the variable in later dialplans, for example to tag or route unverified calls.
 
-A PASSporT whose `iat` is more than 60 seconds from the server clock, older or newer, fails, so a captured header
-cannot be replayed later. Keep the server clock synchronized with NTP.
+A PASSporT whose `iat` is more than 60 seconds from the server clock, older or newer, fails before anything is
+downloaded. Keep the server clock synchronized with NTP. When APCu is enabled, a signature that already verified is
+also refused for the next two minutes, so a captured header cannot be reused on other calls within that window.
+Without APCu, a captured header can be reused for up to 60 seconds.
 
 The certificate is downloaded from the `x5u` URL in the PASSporT. That URL comes from the caller, so the download is
 restricted:
 
 - https only, with the server certificate verified
-- the host must resolve only to public addresses; private, loopback, link-local and reserved addresses are refused,
-  and the connection is pinned to the checked address
+- only public addresses: private, loopback, link-local, shared (CGNAT), benchmark, multicast, reserved and
+  documentation ranges are refused, and so are IPv6 ranges that can carry any IPv4 address (6to4, Teredo, NAT64)
+- the address is checked after curl connects and before any request is sent (PHP 8.4 and later), so DNS cannot
+  change it; on older PHP the host is resolved and checked first and the connection pinned to that address
 - no redirects and no proxy
-- at most 64 KB, within 2 seconds, and only an HTTP 200 response
+- at most 64 KB and only an HTTP 200 response, within 2 seconds including the DNS lookup (on PHP 8.4 and later)
 - cached for 5 minutes when APCu is enabled, so repeated calls do not download it again
 
 The PHP curl extension is required.
@@ -351,7 +357,7 @@ default reason, or left out. Setup adds signing without `call_reason`. To pass o
 editor and add it to the curl action:
 
 ```
-<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}&call_reason=${url_encode(${bcid_call_reason})}"/>
+<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=${url_encode(1$1)}&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}&call_reason=${url_encode(${bcid_call_reason})}"/>
 ```
 
 Removing signing in Setup still finds and removes the edited action.
@@ -415,7 +421,8 @@ From the command line: `php verify.php '<identity header>' [json]`.
 | `identity_setup` | The Setup page: checks, settings, certificates, tests and dialplan changes |
 | `identity_log_view` | The Logs page |
 | `identity_log_delete` | Deleting log entries |
-| `identity_log_all` | **Show All**: the logs, overview and outbound routes of every domain |
+| `identity_log_all` | **Show All** on the overview and Logs pages: the results of every domain |
+| `identity_setup_all` | **Show All** on the Setup page: list, sign and unsign the outbound routes of every domain |
 | `identity_log_add` | Adding log entries (sign.php and verify.php grant it to themselves temporarily) |
 
 All are granted to superadmin by default.
