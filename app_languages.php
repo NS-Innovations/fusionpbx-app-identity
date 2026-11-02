@@ -15,8 +15,98 @@ $text['description-identity']['en-gb'] = "STIR/SHAKEN signing of outbound calls 
 $text['description-identity_logs']['en-us'] = "Each call signed by sign.php and each Identity header checked by verify.php. Verify results are not assigned to a domain because inbound calls are verified before the domain is known.";
 $text['description-identity_logs']['en-gb'] = "Each call signed by sign.php and each Identity header checked by verify.php. Verify results are not assigned to a domain because inbound calls are verified before the domain is known.";
 
-$text['description-identity_setup']['en-us'] = "Checks the STIR/SHAKEN configuration and adds signing and verification to the dialplan.";
-$text['description-identity_setup']['en-gb'] = "Checks the STIR/SHAKEN configuration and adds signing and verification to the dialplan.";
+$text['description-identity_setup']['en-us'] = "Checks the STIR/SHAKEN configuration, manages the settings and certificates, and adds signing and verification to the dialplan.";
+$text['description-identity_setup']['en-gb'] = "Checks the STIR/SHAKEN configuration, manages the settings and certificates, and adds signing and verification to the dialplan.";
+
+$text['header-settings']['en-us'] = "Settings";
+$text['header-settings']['en-gb'] = "Settings";
+
+$text['description-settings']['en-us'] = "These settings apply to the whole server and are used by sign.php and verify.php right away. They are stored in Default Settings under the Identity category.";
+$text['description-settings']['en-gb'] = "These settings apply to the whole server and are used by sign.php and verify.php right away. They are stored in Default Settings under the Identity category.";
+
+$text['header-settings_branded']['en-us'] = "Branded Calling";
+$text['header-settings_branded']['en-gb'] = "Branded Calling";
+
+$text['label-setting_path']['en-us'] = "Certificate Directory";
+$text['label-setting_path']['en-gb'] = "Certificate Directory";
+
+$text['description-setting_path']['en-us'] = "Directory of the private keys and certificates, such as /etc/fusionpbx/certs. The web server user must be able to read it.";
+$text['description-setting_path']['en-gb'] = "Directory of the private keys and certificates, such as /etc/fusionpbx/certs. The web server user must be able to read it.";
+
+$text['label-setting_private_key_name']['en-us'] = "Private Key File";
+$text['label-setting_private_key_name']['en-gb'] = "Private Key File";
+
+$text['description-setting_private_key_name']['en-us'] = "File name of the private key in the certificate directory.";
+$text['description-setting_private_key_name']['en-gb'] = "File name of the private key in the certificate directory.";
+
+$text['label-setting_certificate_name']['en-us'] = "Certificate File";
+$text['label-setting_certificate_name']['en-gb'] = "Certificate File";
+
+$text['description-setting_certificate_name']['en-us'] = "File name of the certificate in the certificate directory.";
+$text['description-setting_certificate_name']['en-gb'] = "File name of the certificate in the certificate directory.";
+
+$text['label-setting_certificate_url']['en-us'] = "Certificate URL";
+$text['label-setting_certificate_url']['en-gb'] = "Certificate URL";
+
+$text['description-setting_certificate_url']['en-us'] = "Public http or https URL of the certificate. It is sent in every signature, and receivers download the certificate from it.";
+$text['description-setting_certificate_url']['en-gb'] = "Public http or https URL of the certificate. It is sent in every signature, and receivers download the certificate from it.";
+
+$text['label-setting_allowed_cidr']['en-us'] = "Allowed CIDR";
+$text['label-setting_allowed_cidr']['en-gb'] = "Allowed CIDR";
+
+$text['description-setting_allowed_cidr']['en-us'] = "Comma separated IPv4 ranges that can use sign.php and verify.php, such as 127.0.0.1/32. Limit it to the FreeSWITCH servers.";
+$text['description-setting_allowed_cidr']['en-gb'] = "Comma separated IPv4 ranges that can use sign.php and verify.php, such as 127.0.0.1/32. Limit it to the FreeSWITCH servers.";
+
+$text['label-setting_debug']['en-us'] = "Debug";
+$text['label-setting_debug']['en-gb'] = "Debug";
+
+$text['description-setting_debug']['en-us'] = "Return error text from sign.php and verify.php instead of the normal response. Leave it off in production.";
+$text['description-setting_debug']['en-gb'] = "Return error text from sign.php and verify.php instead of the normal response. Leave it off in production.";
+
+$text['label-setting_brands_file']['en-us'] = "Brands File";
+$text['label-setting_brands_file']['en-gb'] = "Brands File";
+
+$text['description-setting_brands_file']['en-us'] = "Full path of the brands file managed with brand.php, such as /etc/fusionpbx/identity_brands.json. Branding is off when empty.";
+$text['description-setting_brands_file']['en-gb'] = "Full path of the brands file managed with brand.php, such as /etc/fusionpbx/identity_brands.json. Branding is off when empty.";
+
+$text['label-setting_bcid_private_key_name']['en-us'] = "BCID Private Key File";
+$text['label-setting_bcid_private_key_name']['en-gb'] = "BCID Private Key File";
+
+$text['description-setting_bcid_private_key_name']['en-us'] = "File name of the BCID private key in the certificate directory.";
+$text['description-setting_bcid_private_key_name']['en-gb'] = "File name of the BCID private key in the certificate directory.";
+
+$text['label-setting_bcid_certificate_name']['en-us'] = "BCID Certificate File";
+$text['label-setting_bcid_certificate_name']['en-gb'] = "BCID Certificate File";
+
+$text['description-setting_bcid_certificate_name']['en-us'] = "File name of the BCID certificate in the certificate directory.";
+$text['description-setting_bcid_certificate_name']['en-gb'] = "File name of the BCID certificate in the certificate directory.";
+
+$text['label-setting_bcid_certificate_url']['en-us'] = "BCID Certificate URL";
+$text['label-setting_bcid_certificate_url']['en-gb'] = "BCID Certificate URL";
+
+$text['description-setting_bcid_certificate_url']['en-us'] = "Public URL of the BCID certificate. Brands with the bcid profile are only branded when it is set.";
+$text['description-setting_bcid_certificate_url']['en-gb'] = "Public URL of the BCID certificate. Brands with the bcid profile are only branded when it is set.";
+
+$text['label-setting_bcid_report_log']['en-us'] = "BCID Report Log";
+$text['label-setting_bcid_report_log']['en-gb'] = "BCID Report Log";
+
+$text['description-setting_bcid_report_log']['en-us'] = "Full path of the file each branded call signed with the BCID certificate is written to, such as /var/log/fusionpbx/identity_bcid.log. Empty to not record them.";
+$text['description-setting_bcid_report_log']['en-gb'] = "Full path of the file each branded call signed with the BCID certificate is written to, such as /var/log/fusionpbx/identity_bcid.log. Empty to not record them.";
+
+$text['label-check_settings']['en-us'] = "Settings";
+$text['label-check_settings']['en-gb'] = "Settings";
+
+$text['message-settings_config']['en-us'] = "The settings are still read from config.conf. Run the upgrade, or save the settings below, to move them to Default Settings.";
+$text['message-settings_config']['en-gb'] = "The settings are still read from config.conf. Run the upgrade, or save the settings below, to move them to Default Settings.";
+
+$text['message-setting_invalid']['en-us'] = "Invalid value:";
+$text['message-setting_invalid']['en-gb'] = "Invalid value:";
+
+$text['message-settings_saved']['en-us'] = "Settings saved.";
+$text['message-settings_saved']['en-gb'] = "Settings saved.";
+
+$text['message-settings_failed']['en-us'] = "The settings could not be saved.";
+$text['message-settings_failed']['en-gb'] = "The settings could not be saved.";
 
 $text['header-activity']['en-us'] = "Activity";
 $text['header-activity']['en-gb'] = "Activity";
@@ -26,12 +116,6 @@ $text['header-configuration']['en-gb'] = "Configuration";
 
 $text['header-recent_failures']['en-us'] = "Recent Failures";
 $text['header-recent_failures']['en-gb'] = "Recent Failures";
-
-$text['header-config']['en-us'] = "config.conf";
-$text['header-config']['en-gb'] = "config.conf";
-
-$text['description-config']['en-us'] = "These are the settings in use. Values that are not in /etc/fusionpbx/config.conf use the default. Add or change them in config.conf on the server; they cannot be changed here.";
-$text['description-config']['en-gb'] = "These are the settings in use. Values that are not in /etc/fusionpbx/config.conf use the default. Add or change them in config.conf on the server; they cannot be changed here.";
 
 $text['header-certificate']['en-us'] = "Certificate";
 $text['header-certificate']['en-gb'] = "Certificate";
@@ -171,9 +255,6 @@ $text['label-status_error']['en-gb'] = "Error";
 $text['label-check_logs']['en-us'] = "Log Table";
 $text['label-check_logs']['en-gb'] = "Log Table";
 
-$text['label-check_config']['en-us'] = "Config";
-$text['label-check_config']['en-gb'] = "Config";
-
 $text['label-check_path']['en-us'] = "Certificate Directory";
 $text['label-check_path']['en-gb'] = "Certificate Directory";
 
@@ -237,9 +318,6 @@ $text['option-period_month']['en-gb'] = "Last 30 Days";
 $text['message-run_upgrade']['en-us'] = "The v_identity_logs table does not exist. Run Advanced > Upgrade > Schema or php core/upgrade/upgrade.php.";
 $text['message-run_upgrade']['en-gb'] = "The v_identity_logs table does not exist. Run Advanced > Upgrade > Schema or php core/upgrade/upgrade.php.";
 
-$text['message-config_default']['en-us'] = "Using the default for";
-$text['message-config_default']['en-gb'] = "Using the default for";
-
 $text['message-path_missing']['en-us'] = "Directory does not exist:";
 $text['message-path_missing']['en-gb'] = "Directory does not exist:";
 
@@ -270,8 +348,8 @@ $text['message-certificate_expiring']['en-gb'] = "The certificate expires soon."
 $text['message-certificate_self_signed']['en-us'] = "Self-signed, for testing only.";
 $text['message-certificate_self_signed']['en-gb'] = "Self-signed, for testing only.";
 
-$text['message-url_missing']['en-us'] = "Set identity.certificate_url in config.conf. Receivers download the certificate from this URL to verify your calls.";
-$text['message-url_missing']['en-gb'] = "Set identity.certificate_url in config.conf. Receivers download the certificate from this URL to verify your calls.";
+$text['message-url_missing']['en-us'] = "Set the certificate URL in Settings below. Receivers download the certificate from this URL to verify your calls.";
+$text['message-url_missing']['en-gb'] = "Set the certificate URL in Settings below. Receivers download the certificate from this URL to verify your calls.";
 
 $text['message-url_scheme']['en-us'] = "The certificate URL must use https:";
 $text['message-url_scheme']['en-gb'] = "The certificate URL must use https:";
@@ -294,8 +372,8 @@ $text['message-cidr_invalid']['en-gb'] = "Invalid CIDR, use the address/mask for
 $text['message-cidr_open']['en-us'] = "Any address can request a signature:";
 $text['message-cidr_open']['en-gb'] = "Any address can request a signature:";
 
-$text['message-debug_enabled']['en-us'] = "identity.debug is enabled. Error messages are returned to FreeSWITCH.";
-$text['message-debug_enabled']['en-gb'] = "identity.debug is enabled. Error messages are returned to FreeSWITCH.";
+$text['message-debug_enabled']['en-us'] = "Debug is enabled in Settings. Error messages are returned to FreeSWITCH.";
+$text['message-debug_enabled']['en-gb'] = "Debug is enabled in Settings. Error messages are returned to FreeSWITCH.";
 
 $text['message-no_routes']['en-us'] = "No outbound routes with a bridge were found.";
 $text['message-no_routes']['en-gb'] = "No outbound routes with a bridge were found.";

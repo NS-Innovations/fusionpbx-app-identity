@@ -89,28 +89,15 @@ class identity_setup {
 	}
 
 	/**
-	 * Get the identity settings from config.conf.
+	 * Get the identity settings.
 	 *
-	 * Uses the same keys and defaults as sign.php and verify.php. The configured key shows whether the value is set
-	 * in config.conf or is the default.
+	 * Uses the same settings as sign.php and verify.php, see identity_settings::get().
 	 *
-	 * @return array Array with keys: path, private_key_path, certificate_path, certificate_url, allowed_cidr, debug, configured (array)
+	 * @return array The identity settings with the key and certificate paths
 	 */
 	public function settings(): array {
-		$identity_path = $this->config->get('identity.path', '/etc/fusionpbx/certs');
-		$settings = [
-			'path' => $identity_path,
-			'private_key_path' => $identity_path . '/' . $this->config->get('identity.private_key_name', 'identity_private.key'),
-			'certificate_path' => $identity_path . '/' . $this->config->get('identity.certificate_name', 'identity_certificate.pem'),
-			'certificate_url' => $this->config->get('identity.certificate_url', ''),
-			'allowed_cidr' => $this->config->get('identity.allowed_cidr', '127.0.0.1/32'),
-			'debug' => $this->config->get('identity.debug', 'false'),
-			'configured' => [],
-		];
-		foreach (['path', 'private_key_name', 'certificate_name', 'certificate_url', 'allowed_cidr', 'debug'] as $name) {
-			$settings['configured'][$name] = !empty($this->config->get('identity.' . $name, ''));
-		}
-		return $settings;
+		$identity_settings = new identity_settings(['database' => $this->database, 'config' => $this->config]);
+		return $identity_settings->get();
 	}
 
 	/**

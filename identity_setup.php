@@ -43,7 +43,8 @@
 	$show = $_GET["show"] ?? '';
 	$show_all = $show == 'all' && permission_exists('identity_log_all');
 	$setup = new identity_setup(['database' => $database, 'config' => $config, 'domain_uuid' => $domain_uuid]);
-	$identity_settings = $setup->settings();
+	$settings_manager = new identity_settings(['database' => $database, 'config' => $config]);
+	$identity_settings = $settings_manager->get();
 	$identity = new identity($identity_settings);
 
 //get posted data
@@ -52,8 +53,8 @@
 		[$action, $route_uuid] = array_pad(explode(':', $_POST['route_action'], 2), 2, '');
 	}
 
-//process http post data
-	if (!empty($action)) {
+//process http post data, unless the settings form is shown again after a validation error
+	if (!empty($action) && empty($_POST['persistformvar'])) {
 
 		//validate the token
 			$token = new token;
@@ -65,6 +66,39 @@
 
 		//run the action
 			switch ($action) {
+				case 'save_settings':
+					//get the posted settings
+					$values = [];
+					foreach (array_keys(identity_settings::definitions) as $name) {
+						$values[$name] = trim((string)($_POST['identity_'.$name] ?? ''));
+					}
+
+					//check for all required data
+					$msg = '';
+					foreach ($settings_manager->validate($values) as $name) {
+						$msg .= $text['message-setting_invalid'].' '.$text['label-setting_'.$name]."<br>\n";
+					}
+					if (!empty($msg)) {
+						require_once "resources/header.php";
+						require_once "resources/persist_form_var.php";
+						echo "<div align='center'>\n";
+						echo "<table><tr><td>\n";
+						echo $msg."<br />";
+						echo "</td></tr></table>\n";
+						persistformvar($_POST);
+						echo "</div>\n";
+						require_once "resources/footer.php";
+						exit;
+					}
+
+					//save the settings
+					if ($settings_manager->save($values)) {
+						message::add($text['message-settings_saved']);
+					}
+					else {
+						message::add($text['message-settings_failed'], 'negative', 5000);
+					}
+					break;
 				case 'generate_certificate':
 					$result = $identity->generate_test_certificates($identity_settings['path'], $_SERVER['HTTP_HOST'] ?? 'STIR Test');
 					if (empty($result['error'])) {
@@ -213,13 +247,7 @@
 	$local_fingerprint = $certificate['readable'] ? openssl_x509_fingerprint($certificate['pem'], 'sha256') : '';
 
 //check the allowed cidr
-	$cidr_invalid = [];
-	foreach (array_map('trim', explode(',', $identity_settings['allowed_cidr'])) as $cidr) {
-		[$subnet, $mask] = array_pad(explode('/', $cidr, 2), 2, '');
-		if (ip2long($subnet) === false || !ctype_digit($mask) || (int)$mask > 32) {
-			$cidr_invalid[] = $cidr;
-		}
-	}
+	$cidr_invalid = identity_settings::invalid_cidr($identity_settings['allowed_cidr']);
 
 //get the routes and the inbound dialplan
 	$routes = $setup->outbound_routes($show_all);
@@ -233,9 +261,13 @@
 	$table_exists = $database->table_exists('v_identity_logs');
 	$checks[] = [$text['label-check_logs'], $table_exists ? 'ok' : 'error', $table_exists ? '' : $text['message-run_upgrade']];
 
-	//config.conf
-	$missing = array_keys(array_filter($identity_settings['configured'], function($configured) { return !$configured; }));
-	$checks[] = [$text['label-check_config'], empty($missing) ? 'ok' : 'warning', empty($missing) ? '' : $text['message-config_default'].' identity.'.implode(', identity.', $missing)];
+	//settings
+	if ($identity_settings['source'] == 'config') {
+		$checks[] = [$text['label-check_settings'], 'warning', $text['message-settings_config']];
+	}
+	else {
+		$checks[] = [$text['label-check_settings'], 'ok', ''];
+	}
 
 	//certificate directory
 	if (!is_dir($identity_settings['path'])) {
@@ -323,7 +355,7 @@
 	}
 
 	//debug
-	if ($identity_settings['debug'] != 'false') {
+	if ($identity_settings['debug']) {
 		$checks[] = [$text['label-check_debug'], 'warning', $text['message-debug_enabled']];
 	}
 
@@ -387,23 +419,57 @@
 	echo "</div>\n";
 	echo "<br />\n";
 
-	//config.conf
-	echo "<b>".$text['header-config']."</b>\n";
+	//settings, the posted values when the form is shown again after a validation error
+	$form = [];
+	foreach (array_keys(identity_settings::definitions) as $name) {
+		if (!empty($_POST['persistformvar'])) {
+			$form[$name] = (string)($_POST['identity_'.$name] ?? '');
+		}
+		else if (is_bool($identity_settings[$name])) {
+			$form[$name] = $identity_settings[$name] ? 'true' : 'false';
+		}
+		else {
+			$form[$name] = $identity_settings[$name];
+		}
+	}
+	echo "<form method='post' name='frm_settings' id='frm_settings'>\n";
+	echo "<input type='hidden' name='action' value='save_settings'>\n";
+	echo "<b>".$text['header-settings']."</b>\n";
 	echo "<br /><br />\n";
-	echo $text['description-config']."\n";
+	echo $text['description-settings']."\n";
 	echo "<br /><br />\n";
 	echo "<div class='card'>\n";
-	echo "<textarea class='formfld' style='width: 100%; height: 130px; font-family: monospace;' readonly='readonly'>";
-	echo escape_textarea("#identity - Stir/Shaken\n");
-	echo escape_textarea("identity.path = '".$identity_settings['path']."'\n");
-	echo escape_textarea("identity.private_key_name = '".basename($identity_settings['private_key_path'])."'\n");
-	echo escape_textarea("identity.certificate_name = '".basename($identity_settings['certificate_path'])."'\n");
-	echo escape_textarea("identity.certificate_url = '".$identity_settings['certificate_url']."'\n");
-	echo escape_textarea("identity.allowed_cidr = '".$identity_settings['allowed_cidr']."'\n");
-	echo escape_textarea("identity.debug = ".$identity_settings['debug']."\n");
-	echo "</textarea>\n";
+	echo "<table width='100%' border='0' cellpadding='0' cellspacing='0'>\n";
+	foreach (array_keys(identity_settings::definitions) as $name) {
+		if ($name == 'brands_file') {
+			echo "<tr>\n";
+			echo "<td colspan='2'><br /><b>".$text['header-settings_branded']."</b><br /><br /></td>\n";
+			echo "</tr>\n";
+		}
+		echo "<tr>\n";
+		echo "<td width='30%' class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-setting_'.$name]."</td>\n";
+		echo "<td width='70%' class='vtable' align='left'>\n";
+		if ($name == 'debug') {
+			echo "	<select class='formfld' name='identity_debug'>\n";
+			echo "		<option value='false' ".($form[$name] != 'true' ? "selected='selected'" : null).">".$text['label-false']."</option>\n";
+			echo "		<option value='true' ".($form[$name] == 'true' ? "selected='selected'" : null).">".$text['label-true']."</option>\n";
+			echo "	</select>\n";
+		}
+		else {
+			echo "	<input class='formfld' type='text' name='identity_".$name."' maxlength='1024' style='width: 100%; max-width: 450px;' value=\"".escape($form[$name])."\">\n";
+		}
+		echo "	<br />\n";
+		echo "	".$text['description-setting_'.$name]."\n";
+		echo "</td>\n";
+		echo "</tr>\n";
+	}
+	echo "</table>\n";
 	echo "</div>\n";
 	echo "<br />\n";
+	echo button::create(['type'=>'submit','label'=>$text['button-save'],'icon'=>$settings->get('theme', 'button_icon_save'),'id'=>'btn_save_settings']);
+	echo "<input type='hidden' name='".$token['name']."' value='".$token['hash']."'>\n";
+	echo "</form>\n";
+	echo "<br /><br />\n";
 
 	//certificate
 	echo "<form method='post' name='frm_certificate' id='frm_certificate'>\n";

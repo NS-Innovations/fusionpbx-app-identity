@@ -19,9 +19,9 @@ $no_cidr = true;
 require_once dirname(__DIR__, 2) . "/resources/require.php";
 
 // Get the brands file
-$brands_file = $config->get('identity.brands_file', '');
+$brands_file = (new identity_settings(['database' => $database, 'config' => $config]))->get()['brands_file'];
 if (empty($brands_file)) {
-	fwrite(STDERR, "Set identity.brands_file in /etc/fusionpbx/config.conf first.\n");
+	fwrite(STDERR, "Set the brands file in Advanced > Identity > Setup > Settings first.\n");
 	exit(1);
 }
 

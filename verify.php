@@ -1,19 +1,19 @@
 <?php
 
-// Disable the PHP session and the web CIDR check, this script is called by FreeSWITCH and checks identity.allowed_cidr instead
+// Disable the PHP session and the web CIDR check, this script is called by FreeSWITCH and checks the identity allowed_cidr setting instead
 $no_session = true;
 $no_cidr = true;
 
 // Include files
 require_once dirname(__DIR__, 2) . "/resources/require.php";
 
-// Get the config settings
-$debug = $config->get('identity.debug', 'false');
-$identity_path = $config->get('identity.path', '/etc/fusionpbx/certs');
-$allowed_cidr = $config->get('identity.allowed_cidr', '127.0.0.1/32');
-$setting_array['private_key_path'] = $identity_path . '/' . $config->get('identity.private_key_name', 'identity_private.key');
-$setting_array['certificate_path'] = $identity_path . '/' . $config->get('identity.certificate_name', 'identity_certificate.pem');
-$setting_array['certificate_url'] = $config->get('identity.certificate_url', '');
+// Get the identity settings from Default Settings
+$identity_settings = (new identity_settings(['database' => $database, 'config' => $config]))->get();
+$debug = $identity_settings['debug'];
+$allowed_cidr = $identity_settings['allowed_cidr'];
+$setting_array['private_key_path'] = $identity_settings['private_key_path'];
+$setting_array['certificate_path'] = $identity_settings['certificate_path'];
+$setting_array['certificate_url'] = $identity_settings['certificate_url'];
 $setting_array['debug'] = $debug;
 
 // Get the identity header
@@ -62,13 +62,13 @@ if ($format === 'json') {
 		'attest' => $identity->attest_level,
 		'rcd' => (object)$identity->rcd,
 		'crn' => $identity->crn,
-		'error' => ($result || $debug == 'false') ? '' : $identity->error_message,
+		'error' => ($result || !$debug) ? '' : $identity->error_message,
 	], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 }
 elseif ($result === true) {
 	echo 'TN-Validation-Passed-' . $identity->attest_level;
 } else {
-	if ($debug != 'false') {
+	if ($debug) {
 		echo "PASSporT verification error " . $identity->error_message;
 	}
 	else {

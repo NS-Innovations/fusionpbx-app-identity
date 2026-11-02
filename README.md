@@ -3,13 +3,14 @@
 Signs outbound calls with a SIP `Identity` header and verifies the `Identity` header of inbound calls, as defined by
 STIR/SHAKEN (RFC 8224, 8225, 8588). It can also add branded calling (Rich Call Data) for vetted brands.
 
-FreeSWITCH asks the web server for each signature and verification with the dialplan `curl` application:
+Everything is managed in the web interface under **Advanced > Identity**:
 
-- `sign.php` returns the `Identity` header for an outbound call.
-- `verify.php` checks the `Identity` header of an inbound call and returns a verification status.
+- **Identity** (overview): call counts, activity and recent failures
+- **Logs**: every sign and verify result
+- **Setup**: checks, settings, certificates, a test call, and the dialplan for outbound routes and inbound verification
 
-Each result is written to the Identity logs. The web pages under **Advanced > Identity** show the results and
-handle certificate setup and dialplan changes.
+The pages are for superadmin by default. The only command-line tool is `brand.php`, which manages branded calling
+brands.
 
 ## Install
 
@@ -21,103 +22,42 @@ php core/upgrade/upgrade.php --permissions
 php core/upgrade/upgrade.php
 ```
 
-The upgrade creates the `v_identity_logs` table, the permissions and the menu item. Log out and back in to pick up
-the new permissions.
+The upgrade adds the `v_identity_logs` table, the permissions, the menu item and the identity Default Settings. Log
+out and back in to pick up the new permissions.
 
-Then open **Advanced > Identity > Setup**:
+## Getting Started
 
-1. Fix any errors in the checks table.
-2. Import your certificate, or generate a test certificate.
-3. Sign and verify a test call.
-4. Add signing to the outbound routes.
-5. Add inbound verification.
+Open **Advanced > Identity** and click **Setup**. Work down the page:
 
-## Configuration
+1. **Checks:** the table at the top shows what is missing or wrong. Fix the errors first.
+2. **Settings:** set the certificate URL. Adjust the certificate directory, file names or allowed CIDR if needed, then
+   click **Save**.
+3. **Certificate:** import the private key and certificate from your STI-CA. To try things out first, click
+   **Generate Test Certificate** instead.
+4. **Certificate URL:** copy the certificate to the web server behind the certificate URL. The checks report a
+   mismatch until the URL serves the same certificate.
+5. **Test:** enter a calling and called number and click **Test**. The call is signed, then verified with the local
+   certificate and by downloading the certificate URL, the way a carrier would.
+6. **Outbound Routes:** click **Add** on each route, or **Add All**, to sign its calls.
+7. **Inbound Verification:** click **Add** to verify the `Identity` header of inbound calls.
 
-Settings are read from `/etc/fusionpbx/config.conf`. Setup shows the values in use but cannot change them; edit the
-file on the server. Any key that is not set uses the default shown.
+Then watch the results on the Identity overview and the Logs page.
 
-```
-#identity - Stir/Shaken
-identity.path = '/etc/fusionpbx/certs'
-identity.private_key_name = 'identity_private.key'
-identity.certificate_name = 'identity_certificate.pem'
-identity.certificate_url = 'https://certs.example.com/identity_certificate.pem'
-identity.allowed_cidr = '127.0.0.1/32'
-identity.debug = false
-```
-
-| Key | Default | Purpose |
-|---|---|---|
-| `identity.path` | `/etc/fusionpbx/certs` | Directory of the private keys and certificates |
-| `identity.private_key_name` | `identity_private.key` | Private key file name in `identity.path` |
-| `identity.certificate_name` | `identity_certificate.pem` | Certificate file name in `identity.path` |
-| `identity.certificate_url` | *(none, required)* | Public URL of the certificate, sent as `x5u` in every signature |
-| `identity.allowed_cidr` | `127.0.0.1/32` | Addresses allowed to call sign.php and verify.php, comma separated, each with a mask |
-| `identity.debug` | `false` | Return error text instead of the normal response (see below) |
-
-The branded calling keys are listed under [Branded Calling](#branded-calling-rich-call-data).
-
-`identity.allowed_cidr` is the only access control on sign.php and verify.php. They do not use a web session.
-Requests from other addresses get an empty response. Keep it limited to the FreeSWITCH servers.
-
-With `identity.debug` enabled, verify.php returns `PASSporT verification error <message>` instead of
-`TN-Validation-Failed`, and both scripts print errors on the command line. Leave it off in production. Setup warns
-while it is on.
-
-## Certificates
-
-Production calls need the private key and certificate issued by your STI-CA. The key must be EC P-256
-(prime256v1). Calls are signed with ES256.
-
-### Import
-
-**Setup > Import Certificate** saves the uploaded files to `identity.path` under the configured names. You can import
-the key, the certificate, or both.
-
-- **Private key:** PEM format. An encrypted key is decrypted with the passphrase and saved without one, because
-  sign.php cannot enter a passphrase. It is saved with mode 0600.
-- **Certificate:** PEM or DER, optionally with the intermediate chain. The certificate that belongs to the key is
-  saved first. Expired certificates and certificates without a P-256 key are refused.
-- **Matching:** the key and certificate in use afterwards must belong together. A key that does not match the
-  current certificate (or the reverse) is refused and nothing is replaced. Import a new pair together.
-- **Backups:** a replaced file is kept as `<name>.<YYYYmmddHHMMSS>.bak` in the same directory (with `-1`, `-2`, …
-  added if two imports happen in the same second).
-- **Limits:** each file can be at most 64 KB. The directory must be writable by the web server user.
-
-Import only covers the default certificate. Place the BCID key and certificate in `identity.path` by hand.
-
-### Test certificate
-
-When neither the key nor the certificate exists, **Setup > Generate Test Certificate** creates a self-signed
-P-256 key and certificate, valid for one year. Carriers will not accept it. Use it only to try signing and
-verification. It never replaces existing files.
-
-### Certificate URL
-
-Carriers download the certificate from `identity.certificate_url` to verify your calls. The app does not publish
-it. Copy the certificate, including any chain, to a web server reachable from the internet, preferably over HTTPS.
-
-Setup downloads the URL and compares it with the local certificate. It reports an error if the URL cannot be reached,
-is not a certificate, or serves a different certificate. After importing a new certificate, update the URL.
-
-## Web Interface
-
-All pages are for superadmin by default.
-
-### Overview
+## Overview
 
 **Advanced > Identity** shows:
 
-- signed and verified call counts by attestation level, with success rate and branded calls, for the last day, week
-  or month
+- signed and verified call counts by attestation level, with the success rate and branded calls, for the last day,
+  week or month
 - activity by hour or day
 - the most recent failures
 - a summary of the certificate, certificate URL, outbound routes and inbound verification
 
-### Logs
+The **Logs** and **Setup** buttons open the other pages.
 
-**Identity > Logs** lists every sign and verify result, newest first. You can:
+## Logs
+
+**Logs** lists every sign and verify result, newest first. You can:
 
 - search by number, brand, certificate URL, origid, message or call UUID
 - filter by type (sign or verify) and status
@@ -128,36 +68,121 @@ A row with a call UUID links to its call detail record. Verify results have no d
 verified before the domain is known, so they appear in every domain's view. **Show All** adds the sign results of the
 other domains.
 
-### Setup
+## Setup
 
-**Identity > Setup** runs these checks:
+### Checks
+
+The checks table shows ok, warning or error, with details, for:
 
 - the log table
-- `config.conf`
+- the settings (a warning while they are still read from `config.conf`, see below)
 - the certificate directory
 - the private key: present, readable, P-256, and permissions
 - the certificate: present, readable, expired, self-signed, or within 30 days of expiry
 - that the key matches the certificate
-- the certificate URL
+- the certificate URL: set, reachable, and serving the same certificate
 - the allowed CIDR
 - debug mode
 - outbound routes
 - inbound verification
 
-It can also:
+Click **Refresh** to run them again.
 
-- show the settings in use as `config.conf` lines
-- generate a test certificate, or import the STI-CA key and certificate
-- sign a test call and verify it, first with the local certificate, then by downloading the certificate URL the way a
-  carrier would (nothing is logged)
-- add or remove signing on each outbound route, or add it to every unsigned route with **Add All**
-- add or remove the inbound verification dialplan
+### Settings
 
-**Show All** lists the outbound routes of every domain instead of the current one.
+The settings apply to the whole server and take effect on the next call. Click **Save** to store them. Each value is
+checked first; an invalid value is listed with a **Back** button that returns to the form with your input.
 
-## Outbound Signing
+| Setting | Default | Purpose |
+|---|---|---|
+| Certificate Directory | `/etc/fusionpbx/certs` | Directory of the private keys and certificates (absolute path) |
+| Private Key File | `identity_private.key` | File name of the private key in the certificate directory |
+| Certificate File | `identity_certificate.pem` | File name of the certificate in the certificate directory |
+| Certificate URL | *(none, required)* | Public http or https URL of the certificate, sent as `x5u` in every signature |
+| Allowed CIDR | `127.0.0.1/32` | Comma separated IPv4 ranges that can use sign.php and verify.php |
+| Debug | false | Return error text instead of the normal response |
+| Brands File | *(none)* | Brands file for branded calling. Branding is off when empty |
+| BCID Private Key File | `bcid_private.key` | File name of the BCID private key in the certificate directory |
+| BCID Certificate File | `bcid_certificate.pem` | File name of the BCID certificate in the certificate directory |
+| BCID Certificate URL | *(none)* | Public URL of the BCID certificate. The BCID profile is off when empty |
+| BCID Report Log | *(none)* | File that BCID signing events are written to |
 
-Adding signing to a route inserts these actions before its first bridge, then rebuilds the route XML and clears the
+**Allowed CIDR** is the only access control on sign.php and verify.php, which FreeSWITCH calls without a web session.
+Requests from other addresses get an empty response. Keep it limited to the FreeSWITCH servers.
+
+With **Debug** on, verify.php returns `PASSporT verification error <message>` instead of `TN-Validation-Failed`, and
+both scripts print errors on the command line. Leave it off in production. The checks warn while it is on.
+
+The settings are stored in **Advanced > Default Settings** under the `identity` category and can be edited there too.
+Only default settings are used; domain and user settings for this category are ignored. A disabled setting uses its
+default. Saving in Setup enables it again.
+
+If APCu is enabled, the web server caches settings. Saving in Setup clears that cache. A change made outside the web
+server, such as an upgrade run from the command line, may need the PHP-FPM service restarted.
+
+#### Moving from config.conf
+
+Earlier versions read these settings from `/etc/fusionpbx/config.conf` (`identity.path`, `identity.certificate_url`,
+`identity.bcid.certificate_url` and so on). The upgrade copies any of them that are set to Default Settings and prints
+which ones it copied. After that, config.conf is no longer read and the `identity.*` lines can be removed. The copy is
+skipped once any identity setting has been changed, so it never replaces a value saved in Setup.
+
+Until the upgrade has run, the settings are still read from config.conf, and the checks show a warning. Saving the
+settings in Setup also moves them to Default Settings.
+
+### Certificate
+
+Production calls need the private key and certificate issued by your STI-CA. The key must be EC P-256
+(prime256v1). Calls are signed with ES256.
+
+When neither the key nor the certificate exists, **Generate Test Certificate** creates a self-signed P-256 key and
+certificate, valid for one year. Carriers will not accept it. Use it only to try signing and verification. It never
+replaces existing files.
+
+### Import Certificate
+
+**Import** saves the uploaded files to the certificate directory under the configured file names. You can import the
+key, the certificate, or both.
+
+- **Private key:** PEM format. An encrypted key is decrypted with the passphrase and saved without one, because
+  sign.php cannot enter a passphrase. It is saved with mode 0600.
+- **Certificate:** PEM or DER, optionally with the intermediate chain. The certificate that belongs to the key is
+  saved first. Expired certificates and certificates without a P-256 key are refused.
+- **Matching:** the key and certificate in use afterwards must belong together. A key that does not match the
+  current certificate (or the reverse) is refused and nothing is replaced. Import a new pair together.
+- **Backups:** a replaced file is kept as `<name>.<YYYYmmddHHMMSS>.bak` in the same directory (with `-1`, `-2`, …
+  added if two imports happen in the same second). You are asked to confirm before files are replaced.
+- **Limits:** each file can be at most 64 KB. The directory must be writable by the web server user.
+
+Import only covers the default certificate. Copy the BCID key and certificate to the certificate directory by hand.
+
+Import does not publish the certificate. Carriers download it from the certificate URL to verify your calls, so copy
+the certificate, including any chain, to a web server reachable from the internet, preferably over HTTPS. The checks
+download the URL and report an error if it cannot be reached, is not a certificate, or serves a different
+certificate.
+
+### Test
+
+Enter a calling number, a called number and an attestation level, then click **Test**. The page shows:
+
+- the `Identity` header, or the signing error
+- the result of verifying it with the local certificate
+- the result of verifying it by downloading the certificate URL, the way a carrier would
+
+Nothing is logged.
+
+### Outbound Routes
+
+Each outbound route with a bridge is listed with whether it signs calls. **Show All** lists the routes of every
+domain. For a route that does not sign yet, check the **Destination** and **Attestation**, then click **Add**. **Add
+All** does the same for every unsigned route in the list, using the values in each row. It then reports how many
+routes were signed and how many failed. **Remove** takes signing off a route.
+
+- **Destination:** the number sent to the carrier. Setup suggests the end of the first bridge: `1$1` when the route
+  captures 10 digits, `$1` when it captures 11. It must have the form `[+][digits]$N`.
+- **Attestation:** A (full), B (partial) or C (gateway). A is the default.
+
+Adding signing inserts these actions before the first bridge of the route, then rebuilds the route XML and clears the
 dialplan cache:
 
 ```
@@ -167,48 +192,14 @@ dialplan cache:
 <action application="set" data="sip_h_Identity=${curl_response_data}"/>
 ```
 
-- **Destination:** must be the number sent to the carrier. Setup suggests the end of the first bridge: `1$1` when
-  the route captures 10 digits, `$1` when it captures 11. Change it in the route row before adding. It must have the
-  form `[+][digits]$N`.
-- **Attestation:** A (full), B (partial) or C (gateway). A is the default.
-- **Add All:** signs every unsigned route in the list, using the destination and attestation shown in each row.
-  It then reports how many routes were signed and how many failed.
-- **Remove:** deletes the four actions. To add them by hand, use the same lines.
-
 The `export exclude_outgoing_extra_header=sip_h_Identity` line is required. Without it FreeSWITCH sends the header
-twice, and carriers reject the call with `400 Multiple Identity headers`.
+twice, and carriers reject the call with `400 Multiple Identity headers`. The route name links to the dialplan
+editor if you need to change the actions.
 
-### sign.php
+### Inbound Verification
 
-| Parameter | Required | Description |
-|---|---|---|
-| `source` | yes | Calling number |
-| `destination` | yes | Called number |
-| `attest_level` | no | `A`, `B` or `C` (default `A`) |
-| `call_reason` | no | Call reason for branded calls |
-| `domain_uuid` | no | Logged with the result |
-| `call_uuid` | no | Logged with the result and used to link to the call detail record |
-
-Numbers are reduced to digits. A 10 digit North American number gets a leading 1. The response is the complete
-`Identity` header value. If signing fails the response is empty, so no header is sent and the call still proceeds.
-The response is sent before the log is written, so logging does not delay the call.
-
-From the command line:
-
-```
-php /var/www/fusionpbx/app/identity/sign.php <source> <destination> [attest_level] [call_reason]
-```
-
-With curl, from an address in `identity.allowed_cidr`:
-
-```
-curl -X POST -d "source=12025550100" -d "destination=13105551234" http://127.0.0.1/app/identity/sign.php
-```
-
-## Inbound Verification
-
-**Setup > Inbound Verification > Add** creates a global `identity-verify` dialplan in the public context (order 20,
-continue on):
+**Add** creates a global `identity-verify` dialplan in the public context (order 20, continue on). **Edit** opens it
+in the dialplan editor and **Remove** deletes it.
 
 ```
 <condition field="${sip_identity}" expression="^.+$">
@@ -228,14 +219,7 @@ continue on):
 Use the variable in later dialplans, for example to tag or route unverified calls. The certificate is downloaded from
 the `x5u` URL in the PASSporT on each call, with a 2 second timeout. Only http and https URLs are followed.
 
-From the command line: `php verify.php '<identity header>' [json]`. With `format=json` (or the `json` argument)
-verify.php returns the attestation and any Rich Call Data:
-
-```
-{"verified":true,"attest":"A","rcd":{"nam":"Acme Dental","icn":"https://cdn.example.com/acme.bmp"},"crn":"Billing question","error":""}
-```
-
-### Limitations
+#### Limitations
 
 A passed result means the header is intact and signed by the certificate at its `x5u` URL. It does not mean the
 signer is authorized. verify.php does not yet:
@@ -260,6 +244,13 @@ for vetted brands:
 Branding is only added to calls signed with A attestation. Branded calls can use a separate certificate profile
 (for example a BCID certificate), while all other calls keep the default certificate.
 
+To turn it on, set **Brands File** in Setup > Settings. For the BCID profile, also set **BCID Certificate URL** and
+copy the BCID key and certificate to the certificate directory under the **BCID Private Key File** and **BCID
+Certificate File** names. A brand's `profile` is either:
+
+- `bcid` (the default): branded only when **BCID Certificate URL** is set
+- `default`: signed with the default certificate
+
 Branding never blocks call authentication. The call is signed without branding, using the default certificate, if:
 
 - the brand is missing, disabled, expired or invalid
@@ -267,31 +258,12 @@ Branding never blocks call authentication. The call is signed without branding, 
 - the BCID profile is not configured
 - branded signing fails
 
-```
-#identity - Branded calling
-identity.brands_file = '/etc/fusionpbx/identity_brands.json'
-identity.bcid.private_key_name = 'bcid_private.key'
-identity.bcid.certificate_name = 'bcid_certificate.pem'
-identity.bcid.certificate_url = 'https://certs.example.com/bcid_certificate.pem'
-identity.bcid.report_log = '/var/log/fusionpbx/identity_bcid.log'
-```
-
-| Key | Default | Purpose |
-|---|---|---|
-| `identity.brands_file` | *(none)* | JSON file of brands and numbers. Branding is off when empty |
-| `identity.bcid.private_key_name` | `bcid_private.key` | BCID private key in `identity.path` |
-| `identity.bcid.certificate_name` | `bcid_certificate.pem` | BCID certificate in `identity.path` |
-| `identity.bcid.certificate_url` | *(none)* | Public URL of the BCID certificate. The BCID profile is off when empty |
-| `identity.bcid.report_log` | *(none)* | File that BCID signing events are appended to |
-
-A brand's `profile` is either:
-
-- `bcid` (the default): branded only when `identity.bcid.certificate_url` is set
-- `default`: signed with the default certificate
+Branded calls show the display name in the Brand column of the logs and are counted on the overview.
 
 ### Manage brands
 
-The brands file is managed with `brand.php`. It runs from the command line only; there is no web page for brands yet.
+There is no web page for brands yet. They are managed with `brand.php` on the command line, which uses the **Brands
+File** setting:
 
 ```
 cd /var/www/fusionpbx/app/identity
@@ -333,8 +305,8 @@ sign.php reads the brands file on every call that can be branded. The file:
 ### Call reasons
 
 Only vetted call reasons are signed. A requested reason that is not in the brand's list is replaced by the brand's
-default reason, or left out. Setup adds signing without `call_reason`. To pass one, add it to the route's curl action
-by hand:
+default reason, or left out. Setup adds signing without `call_reason`. To pass one, open the route in the dialplan
+editor and add it to the curl action:
 
 ```
 <action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${effective_caller_id_number}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}&call_reason=${url_encode(${bcid_call_reason})}"/>
@@ -344,7 +316,7 @@ Removing signing in Setup still finds and removes the edited action.
 
 ### Reporting
 
-Each branded call signed with the BCID profile is appended to `identity.bcid.report_log` as one JSON line:
+When **BCID Report Log** is set, each branded call signed with the BCID profile is appended to it as one JSON line:
 
 - `origid`
 - `iat`
@@ -357,14 +329,48 @@ The BCID participation documents define the platform reporting interface. Forwar
 interface is available. The log must be writable by the web server user. Events that cannot be written go to the PHP
 error log instead.
 
-Branded calls show the display name in the Brand column of the logs and are counted on the overview.
+## Reference
 
-## Permissions
+### sign.php
+
+FreeSWITCH calls sign.php from the outbound route. It can also be called with curl from an address in **Allowed
+CIDR**, or from the command line.
+
+| Parameter | Required | Description |
+|---|---|---|
+| `source` | yes | Calling number |
+| `destination` | yes | Called number |
+| `attest_level` | no | `A`, `B` or `C` (default `A`) |
+| `call_reason` | no | Call reason for branded calls |
+| `domain_uuid` | no | Logged with the result |
+| `call_uuid` | no | Logged with the result and used to link to the call detail record |
+
+Numbers are reduced to digits. A 10 digit North American number gets a leading 1. The response is the complete
+`Identity` header value. If signing fails the response is empty, so no header is sent and the call still proceeds.
+The response is sent before the log is written, so logging does not delay the call.
+
+```
+curl -X POST -d "source=12025550100" -d "destination=13105551234" http://127.0.0.1/app/identity/sign.php
+php /var/www/fusionpbx/app/identity/sign.php <source> <destination> [attest_level] [call_reason]
+```
+
+### verify.php
+
+FreeSWITCH calls verify.php from the inbound verification dialplan with the `identity` parameter. It returns one of the
+`identity_verstat` values above. With `format=json` it returns the attestation and any Rich Call Data:
+
+```
+{"verified":true,"attest":"A","rcd":{"nam":"Acme Dental","icn":"https://cdn.example.com/acme.bmp"},"crn":"Billing question","error":""}
+```
+
+From the command line: `php verify.php '<identity header>' [json]`.
+
+### Permissions
 
 | Permission | Allows |
 |---|---|
 | `identity_view` | The Identity overview and menu item |
-| `identity_setup` | The Setup page: certificates, tests and dialplan changes |
+| `identity_setup` | The Setup page: checks, settings, certificates, tests and dialplan changes |
 | `identity_log_view` | The Logs page |
 | `identity_log_delete` | Deleting log entries |
 | `identity_log_all` | **Show All**: the logs, overview and outbound routes of every domain |
