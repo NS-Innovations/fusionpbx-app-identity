@@ -363,4 +363,31 @@ class identity_settings {
 		return $invalid;
 	}
 
+	/**
+	 * Check whether an address may use sign.php and verify.php.
+	 *
+	 * Only valid address/mask entries are used. An empty or invalid entry never matches, and an empty list allows no
+	 * address, so a stray comma or a typo cannot open signing to everyone. check_cidr() is given one range at a time
+	 * because it allows every address for an empty value.
+	 *
+	 * @param string $allowed_cidr Comma separated list such as 127.0.0.1/32, 10.0.0.0/8
+	 * @param string $ip_address   Address of the client
+	 *
+	 * @return bool True if the address is in one of the valid ranges
+	 */
+	public static function is_allowed(string $allowed_cidr, string $ip_address): bool {
+		if (ip2long($ip_address) === false) {
+			return false;
+		}
+		foreach (array_map('trim', explode(',', $allowed_cidr)) as $cidr) {
+			if ($cidr === '' || !empty(self::invalid_cidr($cidr))) {
+				continue;
+			}
+			if (check_cidr($cidr, $ip_address)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 }

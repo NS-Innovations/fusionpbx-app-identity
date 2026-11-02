@@ -50,6 +50,16 @@ class identity_setup {
 	const local_url = 'http://127.0.0.1/app/identity';
 
 	/**
+	 * Source parameter of the signing request. The caller ID is URL encoded so it cannot add parameters to the request.
+	 */
+	const sign_source = 'source=${url_encode(${effective_caller_id_number})}';
+
+	/**
+	 * Source parameter added by earlier versions, without URL encoding. upgrade_signing() replaces it.
+	 */
+	const sign_source_legacy = 'source=${effective_caller_id_number}&';
+
+	/**
 	 * Set in the constructor. Must be a database object and cannot be null.
 	 *
 	 * @var database Database Object
@@ -135,14 +145,15 @@ class identity_setup {
 			return 'path';
 		}
 
-		//write the files, the key first so a failed certificate write never leaves a certificate without its key
-		if (isset($result['private_key']) && !$this->import_write($settings['private_key_path'], $result['private_key'], 0600)) {
-			return 'write';
+		//write the files, all or none, so the key and certificate in use always belong together
+		$files = [];
+		if (isset($result['private_key'])) {
+			$files[] = ['path' => $settings['private_key_path'], 'content' => $result['private_key'], 'mode' => 0600];
 		}
-		if (isset($result['certificate']) && !$this->import_write($settings['certificate_path'], $result['certificate'], 0644)) {
-			return 'write';
+		if (isset($result['certificate'])) {
+			$files[] = ['path' => $settings['certificate_path'], 'content' => $result['certificate'], 'mode' => 0644];
 		}
-		return '';
+		return $this->import_write($files) ? '' : 'write';
 	}
 
 	/**
@@ -237,43 +248,105 @@ class identity_setup {
 	}
 
 	/**
-	 * Replace a file, keeping the existing file as <name>.<date>.bak.
+	 * Replace files, all or none, keeping each existing file as <name>.<date>.bak.
 	 *
-	 * The new content is written to a temporary file in the same directory and renamed over the file, so sign.php
-	 * never reads a partly written key or certificate.
+	 * Every new file is written to a temporary file in the same directory first, then renamed over the file in use, so
+	 * sign.php never reads a partly written key or certificate. If a rename fails, the files already replaced are put
+	 * back from their backups, or removed if they did not exist before.
 	 *
-	 * @param string $path    Path of the file
-	 * @param string $content New content
-	 * @param int    $mode    File mode
+	 * @param array $files List of files, each with keys: path, content, mode
 	 *
-	 * @return bool True if the file was written
+	 * @return bool True if every file was written
 	 */
-	private function import_write(string $path, string $content, int $mode): bool {
-		//keep the existing file, copy() creates the backup with the default mode so set it to the mode of the file
-		if (file_exists($path)) {
-			$backup = $path.'.'.date('YmdHis').'.bak';
-			for ($n = 1; file_exists($backup); $n++) {
-				$backup = $path.'.'.date('YmdHis').'-'.$n.'.bak';
-			}
-			$old = umask(0077);
-			$copied = @copy($path, $backup);
-			umask($old);
-			if (!$copied) {
+	private function import_write(array $files): bool {
+		//write the temporary files, tempnam() creates them with mode 0600
+		$staged = [];
+		foreach ($files as $file) {
+			$temp = $this->import_temp($file['path'], $file['content'], $file['mode']);
+			if ($temp === false) {
+				$this->import_cleanup($staged);
 				return false;
 			}
-			@chmod($backup, fileperms($path) & 0777);
+			$staged[] = ['path' => $file['path'], 'temp' => $temp, 'backup' => ''];
 		}
 
-		//write a temporary file, tempnam() creates it with mode 0600, then rename it over the file
+		//keep the existing files, copy() creates the backup with the default mode so set it to the mode of the file
+		foreach ($staged as $i => $file) {
+			if (!file_exists($file['path'])) {
+				continue;
+			}
+			$backup = $file['path'].'.'.date('YmdHis').'.bak';
+			for ($n = 1; file_exists($backup); $n++) {
+				$backup = $file['path'].'.'.date('YmdHis').'-'.$n.'.bak';
+			}
+			$old = umask(0077);
+			$copied = @copy($file['path'], $backup);
+			umask($old);
+			if (!$copied) {
+				$this->import_cleanup($staged);
+				return false;
+			}
+			@chmod($backup, fileperms($file['path']) & 0777);
+			$staged[$i]['backup'] = $backup;
+		}
+
+		//replace the files, and put back the ones already replaced if one fails
+		foreach ($staged as $i => $file) {
+			if (@rename($file['temp'], $file['path'])) {
+				continue;
+			}
+			for ($j = 0; $j < $i; $j++) {
+				if ($staged[$j]['backup'] === '') {
+					@unlink($staged[$j]['path']);
+					continue;
+				}
+				$content = @file_get_contents($staged[$j]['backup']);
+				$temp = $content === false ? false : $this->import_temp($staged[$j]['path'], $content, fileperms($staged[$j]['backup']) & 0777);
+				if ($temp === false || !@rename($temp, $staged[$j]['path'])) {
+					if ($temp !== false) {
+						@unlink($temp);
+					}
+					error_log('identity: could not restore '.$staged[$j]['path'].' from '.$staged[$j]['backup']);
+				}
+			}
+			$this->import_cleanup(array_slice($staged, $i));
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Write content to a new temporary file in the directory of a path.
+	 *
+	 * @param string $path    Path of the file the temporary file will replace
+	 * @param string $content Content
+	 * @param int    $mode    File mode
+	 *
+	 * @return string|false Path of the temporary file, or false if it could not be written
+	 */
+	private function import_temp(string $path, string $content, int $mode) {
 		$temp = @tempnam(dirname($path), '.identity');
 		if ($temp === false) {
 			return false;
 		}
-		if (@file_put_contents($temp, $content) !== strlen($content) || !@chmod($temp, $mode) || !@rename($temp, $path)) {
+		if (dirname($temp) !== realpath(dirname($path)) || @file_put_contents($temp, $content) !== strlen($content) || !@chmod($temp, $mode)) {
 			@unlink($temp);
 			return false;
 		}
-		return true;
+		return $temp;
+	}
+
+	/**
+	 * Remove the temporary files of files that were not replaced.
+	 *
+	 * @param array $staged Files with key temp
+	 *
+	 * @return void
+	 */
+	private function import_cleanup(array $staged) {
+		foreach ($staged as $file) {
+			@unlink($file['temp']);
+		}
 	}
 
 	/**
@@ -310,7 +383,12 @@ class identity_setup {
 		$sql = "select dialplan_uuid, dialplan_detail_type, dialplan_detail_data ";
 		$sql .= "from v_dialplan_details ";
 		$sql .= "where dialplan_detail_tag = 'action' ";
-		$sql .= "and dialplan_uuid in (select dialplan_uuid from v_dialplans where app_uuid = :app_uuid) ";
+		$sql .= "and dialplan_uuid in (select dialplan_uuid from v_dialplans where app_uuid = :app_uuid ";
+		if (!$all) {
+			$sql .= "and domain_uuid = :domain_uuid ";
+			$parameters['domain_uuid'] = $this->domain_uuid;
+		}
+		$sql .= ") ";
 		$sql .= "order by dialplan_uuid asc, dialplan_detail_group asc, dialplan_detail_order asc ";
 		$parameters['app_uuid'] = self::outbound_route_app_uuid;
 		$details = $this->database->select($sql, $parameters, 'all');
@@ -385,17 +463,18 @@ class identity_setup {
 	 * @param string $dialplan_uuid Outbound route dialplan UUID
 	 * @param string $destination   Destination expression such as 1$1
 	 * @param string $attest_level  Attestation level A, B, or C
+	 * @param bool   $all           Allow a route of any domain instead of only the current domain
 	 *
 	 * @return bool True if signing was added
 	 */
-	public function add_signing(string $dialplan_uuid, string $destination, string $attest_level): bool {
+	public function add_signing(string $dialplan_uuid, string $destination, string $attest_level, bool $all = false): bool {
 		//validate the values
 		if (!is_uuid($dialplan_uuid) || !preg_match('/^\+?[0-9]*\$[0-9]$/', $destination) || !in_array($attest_level, ['A', 'B', 'C'], true)) {
 			return false;
 		}
 
 		//get the route
-		$route = $this->route($dialplan_uuid);
+		$route = $this->route($dialplan_uuid, $all);
 		if (empty($route)) {
 			return false;
 		}
@@ -427,7 +506,7 @@ class identity_setup {
 		}
 
 		//the actions to add
-		$data = 'source=${effective_caller_id_number}&destination='.$destination.'&attest_level='.$attest_level.'&domain_uuid=${domain_uuid}&call_uuid=${uuid}';
+		$data = self::sign_source.'&destination='.$destination.'&attest_level='.$attest_level.'&domain_uuid=${domain_uuid}&call_uuid=${uuid}';
 		$actions = [
 			['unset', 'sip_h_Identity'],
 			['curl', self::local_url.'/sign.php POST '.$data],
@@ -488,12 +567,13 @@ class identity_setup {
 	 * Deletes the actions added by add_signing() and rebuilds the dialplan XML.
 	 *
 	 * @param string $dialplan_uuid Outbound route dialplan UUID
+	 * @param bool   $all           Allow a route of any domain instead of only the current domain
 	 *
 	 * @return bool True if signing was removed
 	 */
-	public function remove_signing(string $dialplan_uuid): bool {
+	public function remove_signing(string $dialplan_uuid, bool $all = false): bool {
 		//get the route
-		$route = is_uuid($dialplan_uuid) ? $this->route($dialplan_uuid) : [];
+		$route = is_uuid($dialplan_uuid) ? $this->route($dialplan_uuid, $all) : [];
 		if (empty($route)) {
 			return false;
 		}
@@ -531,6 +611,62 @@ class identity_setup {
 		$this->update_dialplan($dialplan_uuid, $route['dialplan_context']);
 
 		return true;
+	}
+
+	/**
+	 * URL encode the caller ID in the signing actions added by earlier versions.
+	 *
+	 * Earlier versions sent source=${effective_caller_id_number} without encoding, so a caller ID could add parameters
+	 * to the sign.php request. Runs on upgrade for the routes of every domain and rebuilds the XML of each route changed.
+	 *
+	 * @return int Number of routes updated
+	 */
+	public function upgrade_signing(): int {
+		//find the signing actions
+		$sql = "select d.dialplan_detail_uuid, d.dialplan_uuid, d.dialplan_detail_data, p.dialplan_context ";
+		$sql .= "from v_dialplan_details as d ";
+		$sql .= "inner join v_dialplans as p on p.dialplan_uuid = d.dialplan_uuid ";
+		$sql .= "where d.dialplan_detail_tag = 'action' ";
+		$sql .= "and d.dialplan_detail_type = 'curl' ";
+		$sql .= "and d.dialplan_detail_data like :sign_url ";
+		$parameters['sign_url'] = '%/app/identity/sign.php%';
+		$rows = $this->database->select($sql, $parameters, 'all');
+		unset($sql, $parameters);
+		if (!is_array($rows)) {
+			return 0;
+		}
+
+		//replace the source parameter
+		$x = 0;
+		$array = [];
+		$dialplans = [];
+		foreach ($rows as $row) {
+			if (strpos($row['dialplan_detail_data'], self::sign_source_legacy) === false) {
+				continue;
+			}
+			$array['dialplan_details'][$x]['dialplan_detail_uuid'] = $row['dialplan_detail_uuid'];
+			$array['dialplan_details'][$x]['dialplan_uuid'] = $row['dialplan_uuid'];
+			$array['dialplan_details'][$x]['dialplan_detail_data'] = str_replace(self::sign_source_legacy, self::sign_source.'&', $row['dialplan_detail_data']);
+			$dialplans[$row['dialplan_uuid']] = $row['dialplan_context'];
+			$x++;
+		}
+		if (empty($array)) {
+			return 0;
+		}
+
+		//save the actions
+		$p = permissions::new();
+		$p->add('dialplan_detail_edit', 'temp');
+		$this->database->save($array, false);
+		unset($array);
+		$p->delete('dialplan_detail_edit', 'temp');
+
+		//rebuild the dialplan xml and clear the cache
+		foreach ($dialplans as $dialplan_uuid => $dialplan_context) {
+			$this->update_dialplan($dialplan_uuid, $dialplan_context);
+		}
+
+		return count($dialplans);
 	}
 
 	/**
@@ -637,13 +773,18 @@ class identity_setup {
 	 * Get an outbound route by UUID.
 	 *
 	 * @param string $dialplan_uuid Dialplan UUID
+	 * @param bool   $all           Find a route of any domain instead of only the current domain
 	 *
 	 * @return array Array with keys: dialplan_uuid, domain_uuid, dialplan_context, or an empty array if not found
 	 */
-	private function route(string $dialplan_uuid): array {
+	private function route(string $dialplan_uuid, bool $all = false): array {
 		$sql = "select dialplan_uuid, domain_uuid, dialplan_context from v_dialplans ";
 		$sql .= "where dialplan_uuid = :dialplan_uuid ";
 		$sql .= "and app_uuid = :app_uuid ";
+		if (!$all) {
+			$sql .= "and domain_uuid = :domain_uuid ";
+			$parameters['domain_uuid'] = $this->domain_uuid;
+		}
 		$parameters['dialplan_uuid'] = $dialplan_uuid;
 		$parameters['app_uuid'] = self::outbound_route_app_uuid;
 		$row = $this->database->select($sql, $parameters, 'row');

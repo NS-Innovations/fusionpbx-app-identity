@@ -128,7 +128,10 @@ checked first; an invalid value is listed with a **Back** button that returns to
 | BCID Report Log | *(none)* | File that BCID signing events are written to |
 
 **Allowed CIDR** is the only access control on sign.php and verify.php, which FreeSWITCH calls without a web session.
-Requests from other addresses get an empty response. Keep it limited to the FreeSWITCH servers.
+Requests from other addresses get an empty response. Keep it limited to the FreeSWITCH servers. Each entry must be an
+IPv4 address with a mask, such as `10.0.0.5/32`. Empty and invalid entries are ignored, and when no valid entry is left
+every request is refused, so a stray comma or a typo can never open signing to everyone. The checks list invalid
+entries.
 
 With **Debug** on, verify.php returns `PASSporT verification error <message>` instead of `TN-Validation-Failed`, and
 both scripts print errors on the command line. Leave it off in production. The checks warn while it is on.
@@ -178,9 +181,10 @@ key, the certificate, or both.
 Import only covers the default certificate. Copy the BCID key and certificate to the certificate directory by hand.
 
 Import does not publish the certificate. Carriers download it from the certificate URL to verify your calls, so copy
-the certificate, including any chain, to a web server reachable from the internet, preferably over HTTPS. The checks
-download the URL and report an error if it cannot be reached, is not a certificate, or serves a different
-certificate.
+the certificate, including any chain, to a web server reachable from the internet over HTTPS. The URL must return
+the certificate directly: receivers using this app do not follow redirects or accept http (see
+[Inbound Verification](#inbound-verification)). The checks download the URL and report an error if it cannot be
+reached, is not a certificate, or serves a different certificate.
 
 ### Test
 
@@ -194,10 +198,11 @@ Nothing is logged.
 
 ### Outbound Routes
 
-Each outbound route with a bridge is listed with whether it signs calls. **Show All** lists the routes of every
-domain. For a route that does not sign yet, check the **Destination** and **Attestation**, then click **Add**. **Add
-All** does the same for every unsigned route in the list, using the values in each row. It then reports how many
-routes were signed and how many failed. **Remove** takes signing off a route.
+Each outbound route with a bridge is listed with whether it signs calls. For a route that does not sign yet, check the
+**Destination** and **Attestation**, then click **Add**. **Add All** does the same for every unsigned route in the
+list, using the values in each row. It then reports how many routes were signed and how many failed. **Remove** takes
+signing off a route. Only the routes of the current domain can be changed, unless **Show All** is used, which needs the
+`identity_log_all` permission.
 
 - **Destination:** the number sent to the carrier. Setup suggests the end of the first bridge: `1$1` when the route
   captures 10 digits, `$1` when it captures 11. It must have the form `[+][digits]$N`.
@@ -208,7 +213,7 @@ dialplan cache:
 
 ```
 <action application="unset" data="sip_h_Identity"/>
-<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${effective_caller_id_number}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}"/>
+<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}"/>
 <action application="export" data="exclude_outgoing_extra_header=sip_h_Identity"/>
 <action application="set" data="sip_h_Identity=${curl_response_data}"/>
 ```
@@ -216,6 +221,9 @@ dialplan cache:
 The `export exclude_outgoing_extra_header=sip_h_Identity` line is required. Without it FreeSWITCH sends the header
 twice, and carriers reject the call with `400 Multiple Identity headers`. The route name links to the dialplan
 editor if you need to change the actions.
+
+The caller ID is URL encoded so it cannot add parameters, such as a call reason, to the signing request. Earlier
+versions sent it without encoding; the upgrade updates those routes and prints how many it changed.
 
 ### Inbound Verification
 
@@ -234,19 +242,32 @@ in the dialplan editor and **Remove** deletes it.
 | Value | Meaning |
 |---|---|
 | `TN-Validation-Passed-A`, `-B`, `-C` | The signature is valid, with that attestation |
-| `TN-Validation-Failed` | The header is malformed, the certificate could not be downloaded, or the signature is invalid |
+| `TN-Validation-Failed` | The header is malformed or too old, the certificate could not be downloaded, or the signature is invalid |
 | `No-TN-Validation` | verify.php was called without a header |
 
-Use the variable in later dialplans, for example to tag or route unverified calls. The certificate is downloaded from
-the `x5u` URL in the PASSporT on each call, with a 2 second timeout. Only http and https URLs are followed.
+Use the variable in later dialplans, for example to tag or route unverified calls.
+
+A PASSporT whose `iat` is more than 60 seconds from the server clock, older or newer, fails, so a captured header
+cannot be replayed later. Keep the server clock synchronized with NTP.
+
+The certificate is downloaded from the `x5u` URL in the PASSporT. That URL comes from the caller, so the download is
+restricted:
+
+- https only, with the server certificate verified
+- the host must resolve only to public addresses; private, loopback, link-local and reserved addresses are refused,
+  and the connection is pinned to the checked address
+- no redirects and no proxy
+- at most 64 KB, within 2 seconds, and only an HTTP 200 response
+- cached for 5 minutes when APCu is enabled, so repeated calls do not download it again
+
+The PHP curl extension is required.
 
 #### Limitations
 
-A passed result means the header is intact and signed by the certificate at its `x5u` URL. It does not mean the
-signer is authorized. verify.php does not yet:
+A passed result means the header is recent, intact, and signed by the certificate at its `x5u` URL. It does not mean
+the signer is authorized. verify.php does not yet:
 
 - validate the certificate chain against the STI-PA trust list or check certificate revocation
-- check the PASSporT `iat` age
 - check that `orig` and `dest` match the call
 - check the logo digest (`rcdi`)
 
@@ -330,7 +351,7 @@ default reason, or left out. Setup adds signing without `call_reason`. To pass o
 editor and add it to the curl action:
 
 ```
-<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${effective_caller_id_number}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}&call_reason=${url_encode(${bcid_call_reason})}"/>
+<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=1$1&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}&call_reason=${url_encode(${bcid_call_reason})}"/>
 ```
 
 Removing signing in Setup still finds and removes the edited action.

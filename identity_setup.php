@@ -149,8 +149,9 @@
 						$test['local'] = $identity->verify($test['header'], $status['certificate']['pem']);
 						$test['local_message'] = $test['local'] ? $text['label-attest'].' '.$identity->attest_level : $identity->error_message;
 
-						//verify the same way a carrier would, by downloading the certificate URL
+						//verify the same way a carrier would, by downloading the certificate URL, which the administrator set
 						if (!empty($identity_settings['certificate_url'])) {
+							$identity->allow_local_certificate_url = true;
 							$test['remote'] = $identity->verify($test['header']);
 							$test['remote_message'] = $test['remote'] ? $text['label-attest'].' '.$identity->attest_level : $identity->error_message;
 						}
@@ -160,7 +161,7 @@
 				case 'add_signing':
 					$destination = $_POST['routes'][$route_uuid]['destination'] ?? '';
 					$attest_level = $_POST['routes'][$route_uuid]['attest_level'] ?? '';
-					if ($setup->add_signing($route_uuid, $destination, $attest_level)) {
+					if ($setup->add_signing($route_uuid, $destination, $attest_level, $show_all)) {
 						message::add($text['message-signing_added']);
 					}
 					else {
@@ -178,7 +179,7 @@
 						$uuid = $route['dialplan_uuid'];
 						$destination = $_POST['routes'][$uuid]['destination'] ?? $route['destination'];
 						$attest_level = $_POST['routes'][$uuid]['attest_level'] ?? $route['attest_level'];
-						if ($setup->add_signing($uuid, $destination, $attest_level)) {
+						if ($setup->add_signing($uuid, $destination, $attest_level, $show_all)) {
 							$added++;
 						}
 						else {
@@ -193,8 +194,11 @@
 					}
 					break;
 				case 'remove_signing':
-					if ($setup->remove_signing($route_uuid)) {
+					if ($setup->remove_signing($route_uuid, $show_all)) {
 						message::add($text['message-signing_removed']);
+					}
+					else {
+						message::add($text['message-signing_remove_failed'], 'negative');
 					}
 					break;
 				case 'add_verify':
@@ -228,8 +232,7 @@
 	$url_error = '';
 	$url_scheme = strtolower(parse_url($identity_settings['certificate_url'], PHP_URL_SCHEME) ?? '');
 	if (!empty($identity_settings['certificate_url']) && in_array($url_scheme, ['http', 'https'], true)) {
-		$context = stream_context_create(['http' => ['timeout' => 3, 'follow_location' => 1, 'max_redirects' => 3]]);
-		$url_pem = @file_get_contents($identity_settings['certificate_url'], false, $context);
+		$url_pem = $identity->fetch_certificate($identity_settings['certificate_url'], true);
 		if ($url_pem === false) {
 			$url_error = $text['message-url_unreachable'];
 		}
@@ -348,7 +351,7 @@
 
 	//allowed cidr
 	if (!empty($cidr_invalid)) {
-		$checks[] = [$text['label-check_cidr'], 'error', $text['message-cidr_invalid'].' '.implode(', ', $cidr_invalid)];
+		$checks[] = [$text['label-check_cidr'], 'error', $text['message-cidr_invalid'].' \''.implode('\', \'', $cidr_invalid).'\''];
 	}
 	else if (substr_count($identity_settings['allowed_cidr'], '/0') != 0) {
 		$checks[] = [$text['label-check_cidr'], 'warning', $text['message-cidr_open'].' '.$identity_settings['allowed_cidr']];

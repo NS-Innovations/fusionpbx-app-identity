@@ -53,8 +53,7 @@ else {
 	}
 
 	// Check if the CIDR is allowed
-	$cidr_array = array_map('trim', explode(',', $allowed_cidr));
-	if (!check_cidr($cidr_array, $remote_address)) {
+	if (!identity_settings::is_allowed($allowed_cidr, $remote_address)) {
 		return;
 	}
 

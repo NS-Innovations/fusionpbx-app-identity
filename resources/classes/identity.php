@@ -41,6 +41,31 @@ class identity {
 	public $certificate_timeout = 2;
 
 	/**
+	 * Allow the certificate URL to use http and a private or local address.
+	 *
+	 * Only for a URL the administrator configured, such as the Setup test. It must stay false for the x5u of inbound
+	 * calls, which comes from the caller.
+	 *
+	 * @var bool
+	 */
+	public $allow_local_certificate_url = false;
+
+	/**
+	 * Largest certificate download accepted. A certificate with its chain is a few KB.
+	 */
+	const MAX_CERTIFICATE_SIZE = 65536;
+
+	/**
+	 * Seconds a verified PASSporT may be older or newer than the local clock (ATIS-1000074 freshness).
+	 */
+	const MAX_PASSPORT_AGE = 60;
+
+	/**
+	 * Seconds a downloaded certificate is cached in APCu when it is available.
+	 */
+	const CERTIFICATE_CACHE_TTL = 300;
+
+	/**
 	 * Rich Call Data claim from a verified PASSporT (empty if none).
 	 *
 	 * @var array
@@ -330,20 +355,13 @@ class identity {
 		if (!empty($certificate_pem)) {
 			$header_certificate_string = $certificate_pem;
 		} else {
-			// Only allow http and https, the URL comes from the caller and must not reach local files or other wrappers
-			$scheme = strtolower(parse_url($header_certificate_url, PHP_URL_SCHEME) ?? '');
-			if ($scheme !== 'https' && $scheme !== 'http') {
-				$this->error_message = "Certificate URL must be http or https: " . $header_certificate_url;
+			// The URL comes from the caller: fetch_certificate() limits it to https on a public address
+			if (!is_string($header_certificate_url)) {
+				$this->error_message = "Verify certificate URL invalid";
 				return false;
 			}
-
-			// Download certificate with a timeout so a slow server does not hold up the call
-			$context = stream_context_create([
-				'http' => ['timeout' => $this->certificate_timeout, 'follow_location' => 1, 'max_redirects' => 3]
-			]);
-			$header_certificate_string = @file_get_contents($header_certificate_url, false, $context);
+			$header_certificate_string = $this->fetch_certificate($header_certificate_url, $this->allow_local_certificate_url);
 			if ($header_certificate_string === false) {
-				$this->error_message = "Failed to download certificate from: " . $header_certificate_url;
 				return false;
 			}
 		}
@@ -358,6 +376,12 @@ class identity {
 		// Attestation missing
 		if (empty($payload_json['attest'])) {
 			$this->error_message = "Attestation missing";
+			return false;
+		}
+
+		// Freshness: refuse a PASSporT issued too long ago or in the future, so a captured header cannot be replayed
+		if (!is_int($payload_json['iat'] ?? null) || abs(time() - $payload_json['iat']) > self::MAX_PASSPORT_AGE) {
+			$this->error_message = "PASSporT iat is missing or more than " . self::MAX_PASSPORT_AGE . " seconds from the current time";
 			return false;
 		}
 
@@ -692,6 +716,118 @@ class identity {
 		}
 
 		return openssl_pkey_get_private($key_content);
+	}
+
+	/**
+	 * Download a certificate from a URL.
+	 *
+	 * The x5u URL of an inbound call comes from the caller, so by default only https is allowed, every address the
+	 * host resolves to must be public, and the connection is pinned to the checked address so DNS cannot change it
+	 * afterwards. Redirects and proxies are never used, the download stops at MAX_CERTIFICATE_SIZE, and only HTTP 200
+	 * is accepted. Certificates are cached in APCu for CERTIFICATE_CACHE_TTL seconds when it is available.
+	 *
+	 * @param string $url     Certificate URL
+	 * @param bool   $trusted True for a URL the administrator configured: http and private addresses are allowed, and
+	 *                        the cache is not used
+	 *
+	 * @return string|false The downloaded content, or false with error_message set
+	 */
+	public function fetch_certificate(string $url, bool $trusted = false) {
+		// Check the URL
+		$parts = parse_url($url);
+		$scheme = strtolower($parts['scheme'] ?? '');
+		$host = strtolower(trim($parts['host'] ?? '', '[]'));
+		if ($host === '' || isset($parts['user']) || isset($parts['pass']) || !in_array($scheme, $trusted ? ['http', 'https'] : ['https'], true)) {
+			$this->error_message = "Certificate URL must be " . ($trusted ? "http or https" : "https") . ": " . $url;
+			return false;
+		}
+		$port = (int)($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+
+		// Use the cached certificate
+		$cache_key = 'identity_x5u_' . hash('sha256', $url);
+		$apcu = !$trusted && function_exists('apcu_enabled') && apcu_enabled();
+		if ($apcu) {
+			$cached = apcu_fetch($cache_key, $found);
+			if ($found && is_string($cached)) {
+				return $cached;
+			}
+		}
+
+		if (!function_exists('curl_init')) {
+			$this->error_message = "The PHP curl extension is required to download the certificate";
+			return false;
+		}
+
+		// Resolve the host and refuse private, local and reserved addresses
+		$resolve = [];
+		if (!$trusted) {
+			if (filter_var($host, FILTER_VALIDATE_IP)) {
+				$addresses = [$host];
+			}
+			else {
+				$addresses = gethostbynamel($host) ?: [];
+				foreach (@dns_get_record($host, DNS_AAAA) ?: [] as $record) {
+					if (!empty($record['ipv6'])) {
+						$addresses[] = $record['ipv6'];
+					}
+				}
+			}
+			if (empty($addresses)) {
+				$this->error_message = "Certificate URL host could not be resolved: " . $url;
+				return false;
+			}
+			foreach ($addresses as $address) {
+				if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+					$this->error_message = "Certificate URL must use a public address: " . $url;
+					return false;
+				}
+			}
+			$address = $addresses[0];
+			$resolve = [$host . ':' . $port . ':' . (strpos($address, ':') !== false ? '[' . $address . ']' : $address)];
+		}
+
+		// Download, stopping when the response is larger than a certificate can be
+		$body = '';
+		$too_large = false;
+		$ch = curl_init($url);
+		curl_setopt_array($ch, [
+			CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+			CURLOPT_REDIR_PROTOCOLS => 0,
+			CURLOPT_FOLLOWLOCATION => false,
+			CURLOPT_PROXY => '',
+			CURLOPT_RESOLVE => $resolve,
+			CURLOPT_CONNECTTIMEOUT => $this->certificate_timeout,
+			CURLOPT_TIMEOUT => $this->certificate_timeout,
+			CURLOPT_SSL_VERIFYPEER => true,
+			CURLOPT_SSL_VERIFYHOST => 2,
+			CURLOPT_WRITEFUNCTION => function ($ch, $data) use (&$body, &$too_large) {
+				if (strlen($body) + strlen($data) > self::MAX_CERTIFICATE_SIZE) {
+					$too_large = true;
+					return 0;
+				}
+				$body .= $data;
+				return strlen($data);
+			},
+		]);
+		$result = curl_exec($ch);
+		$status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+		curl_close($ch);
+		if ($too_large) {
+			$this->error_message = "Certificate download is larger than " . self::MAX_CERTIFICATE_SIZE . " bytes: " . $url;
+			return false;
+		}
+		if ($result === false || $status !== 200 || $body === '') {
+			$this->error_message = "Failed to download certificate from: " . $url;
+			return false;
+		}
+
+		// Cache only a readable certificate
+		if ($apcu && @openssl_x509_read($body) !== false) {
+			apcu_store($cache_key, $body, self::CERTIFICATE_CACHE_TTL);
+		}
+		while (openssl_error_string()) {}
+
+		return $body;
 	}
 
 	/**
@@ -1054,7 +1190,7 @@ class identity {
 	public function generate_test_certificates(string $output_dir, string $common_name = 'STIR Test'): array {
 		// Create output directory if it doesn't exist
 		if (!is_dir($output_dir)) {
-			if (!mkdir($output_dir, 0755, true)) {
+			if (!mkdir($output_dir, 0750, true)) {
 				return ['private_key_path' => '', 'certificate_path' => '',
 						'error' => 'Failed to create output directory'];
 			}
@@ -1093,17 +1229,24 @@ class identity {
 						'error' => 'Failed to generate private key (both command-line and PHP methods failed): ' . openssl_error_string()];
 			}
 
-			// Export private key
+			// Export private key, created with mode 0600 so it is never readable by other users
 			$private_key_pem = '';
 			openssl_pkey_export($private_key, $private_key_pem);
-			if (!file_put_contents($private_key_path, $private_key_pem)) {
+			$umask = umask(0077);
+			$written = file_put_contents($private_key_path, $private_key_pem);
+			umask($umask);
+			if (!$written) {
 				return ['private_key_path' => '', 'certificate_path' => '',
 						'error' => 'Failed to write private key file'];
 			}
 		}
 
 		// Only the web server user may read the private key
-		chmod($private_key_path, 0600);
+		if (!chmod($private_key_path, 0600)) {
+			unlink($private_key_path);
+			return ['private_key_path' => '', 'certificate_path' => '',
+					'error' => 'Failed to set the private key file mode'];
+		}
 
 		// Load the private key for certificate generation
 		$private_key_pem = file_get_contents($private_key_path);
