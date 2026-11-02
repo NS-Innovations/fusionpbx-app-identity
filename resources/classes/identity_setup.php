@@ -114,6 +114,182 @@ class identity_setup {
 	}
 
 	/**
+	 * Import the private key and certificate issued by the STI-CA.
+	 *
+	 * Either file can be imported on its own. The key must be an EC P-256 (prime256v1) key; an encrypted key is
+	 * decrypted with the passphrase and saved without one, because sign.php cannot enter a passphrase. The certificate
+	 * may be PEM or DER and may include the chain. The certificate that belongs to the key is saved first, followed by
+	 * the rest of the chain. The key and certificate in use afterwards must belong together, so a key that does not
+	 * match the existing certificate (or the reverse) is refused. Existing files are kept as <name>.<date>.bak.
+	 *
+	 * @param string $private_key_pem  Private key in PEM format, or empty to keep the current key
+	 * @param string $certificate_data Certificate in PEM or DER format, or empty to keep the current certificate
+	 * @param string $passphrase       Passphrase of an encrypted private key
+	 *
+	 * @return string Empty on success, otherwise an error code: empty, path, key_invalid, key_curve,
+	 *                certificate_invalid, certificate_curve, certificate_expired, mismatch, write
+	 */
+	public function import_certificates(string $private_key_pem, string $certificate_data, string $passphrase = ''): string {
+		$settings = $this->settings();
+		$result = $this->import_validate($settings, $private_key_pem, $certificate_data, $passphrase);
+
+		//clear any errors left by openssl so they are not reported by a later call
+		while (openssl_error_string()) {}
+
+		if (!empty($result['error'])) {
+			return $result['error'];
+		}
+
+		//create the directory, only the web server user needs to read it
+		if (!is_dir($settings['path']) && !@mkdir($settings['path'], 0750, true)) {
+			return 'path';
+		}
+		if (!is_writable($settings['path'])) {
+			return 'path';
+		}
+
+		//write the files, the key first so a failed certificate write never leaves a certificate without its key
+		if (isset($result['private_key']) && !$this->import_write($settings['private_key_path'], $result['private_key'], 0600)) {
+			return 'write';
+		}
+		if (isset($result['certificate']) && !$this->import_write($settings['certificate_path'], $result['certificate'], 0644)) {
+			return 'write';
+		}
+		return '';
+	}
+
+	/**
+	 * Validate the files to import and convert them to the format that is saved.
+	 *
+	 * @param array  $settings         Identity settings from settings()
+	 * @param string $private_key_pem  Private key in PEM format, or empty
+	 * @param string $certificate_data Certificate in PEM or DER format, or empty
+	 * @param string $passphrase       Passphrase of an encrypted private key
+	 *
+	 * @return array Array with keys: error, and private_key and certificate (PEM) for the files to write
+	 */
+	private function import_validate(array $settings, string $private_key_pem, string $certificate_data, string $passphrase): array {
+		if (trim($private_key_pem) === '' && trim($certificate_data) === '') {
+			return ['error' => 'empty'];
+		}
+		$result = ['error' => ''];
+
+		//private key, the uploaded one or the one in use
+		$private_key = false;
+		if (trim($private_key_pem) !== '') {
+			$private_key = @openssl_pkey_get_private($private_key_pem, $passphrase !== '' ? $passphrase : null);
+			if ($private_key === false) {
+				return ['error' => 'key_invalid'];
+			}
+			$details = openssl_pkey_get_details($private_key);
+			if (($details['ec']['curve_name'] ?? '') != 'prime256v1') {
+				return ['error' => 'key_curve'];
+			}
+			if (!openssl_pkey_export($private_key, $result['private_key'])) {
+				return ['error' => 'key_invalid'];
+			}
+		}
+		else if (is_readable($settings['private_key_path'])) {
+			$private_key = @openssl_pkey_get_private((string)file_get_contents($settings['private_key_path']));
+		}
+
+		//certificates, the uploaded ones or the one in use
+		$leaf = false;
+		if (trim($certificate_data) !== '') {
+			//convert a der certificate to pem
+			if (strpos($certificate_data, '-----BEGIN') === false) {
+				$certificate_data = "-----BEGIN CERTIFICATE-----\n".chunk_split(base64_encode($certificate_data), 64, "\n")."-----END CERTIFICATE-----\n";
+			}
+			$certificates = [];
+			preg_match_all('/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/s', $certificate_data, $matches);
+			foreach ($matches[0] as $block) {
+				$certificate = @openssl_x509_read($block);
+				if ($certificate === false || !openssl_x509_export($certificate, $pem)) {
+					return ['error' => 'certificate_invalid'];
+				}
+				$certificates[] = ['x509' => $certificate, 'pem' => $pem];
+			}
+			if (empty($certificates)) {
+				return ['error' => 'certificate_invalid'];
+			}
+
+			//put the certificate of the private key first, the rest is the chain
+			if ($private_key !== false) {
+				foreach ($certificates as $i => $certificate) {
+					if (openssl_x509_check_private_key($certificate['x509'], $private_key)) {
+						unset($certificates[$i]);
+						array_unshift($certificates, $certificate);
+						break;
+					}
+				}
+			}
+
+			//check the certificate
+			$public_key = openssl_pkey_get_public($certificates[0]['x509']);
+			$details = $public_key !== false ? openssl_pkey_get_details($public_key) : [];
+			if (($details['ec']['curve_name'] ?? '') != 'prime256v1') {
+				return ['error' => 'certificate_curve'];
+			}
+			$info = openssl_x509_parse($certificates[0]['x509']);
+			if (($info['validTo_time_t'] ?? 0) < time()) {
+				return ['error' => 'certificate_expired'];
+			}
+			$result['certificate'] = implode('', array_column($certificates, 'pem'));
+			$leaf = $certificates[0]['x509'];
+		}
+		else if (is_readable($settings['certificate_path'])) {
+			$leaf = @openssl_x509_read((string)file_get_contents($settings['certificate_path']));
+		}
+
+		//the key and certificate in use afterwards must belong together
+		if ($private_key !== false && $leaf !== false && !openssl_x509_check_private_key($leaf, $private_key)) {
+			return ['error' => 'mismatch'];
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Replace a file, keeping the existing file as <name>.<date>.bak.
+	 *
+	 * The new content is written to a temporary file in the same directory and renamed over the file, so sign.php
+	 * never reads a partly written key or certificate.
+	 *
+	 * @param string $path    Path of the file
+	 * @param string $content New content
+	 * @param int    $mode    File mode
+	 *
+	 * @return bool True if the file was written
+	 */
+	private function import_write(string $path, string $content, int $mode): bool {
+		//keep the existing file, copy() creates the backup with the default mode so set it to the mode of the file
+		if (file_exists($path)) {
+			$backup = $path.'.'.date('YmdHis').'.bak';
+			for ($n = 1; file_exists($backup); $n++) {
+				$backup = $path.'.'.date('YmdHis').'-'.$n.'.bak';
+			}
+			$old = umask(0077);
+			$copied = @copy($path, $backup);
+			umask($old);
+			if (!$copied) {
+				return false;
+			}
+			@chmod($backup, fileperms($path) & 0777);
+		}
+
+		//write a temporary file, tempnam() creates it with mode 0600, then rename it over the file
+		$temp = @tempnam(dirname($path), '.identity');
+		if ($temp === false) {
+			return false;
+		}
+		if (@file_put_contents($temp, $content) !== strlen($content) || !@chmod($temp, $mode) || !@rename($temp, $path)) {
+			@unlink($temp);
+			return false;
+		}
+		return true;
+	}
+
+	/**
 	 * Get the outbound routes and whether each one signs calls.
 	 *
 	 * Only routes with a bridge action are returned. The suggested destination is taken from the first bridge so the

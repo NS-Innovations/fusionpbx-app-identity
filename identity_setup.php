@@ -74,6 +74,32 @@
 						message::add($text['message-certificate_failed'].' '.$result['error'], 'negative', 5000);
 					}
 					break;
+				case 'import_certificate':
+					//read the uploaded files, a file that was not chosen is left empty
+					$import_error = '';
+					$import = ['private_key' => '', 'certificate' => ''];
+					foreach (array_keys($import) as $name) {
+						$file = $_FILES['import_'.$name] ?? [];
+						if (empty($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) == UPLOAD_ERR_NO_FILE) {
+							continue;
+						}
+						if ($file['error'] != UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name']) || $file['size'] > 65536) {
+							$import_error = 'upload';
+							break;
+						}
+						$import[$name] = (string)file_get_contents($file['tmp_name']);
+					}
+					if (empty($import_error)) {
+						$import_error = $setup->import_certificates($import['private_key'], $import['certificate'], $_POST['import_passphrase'] ?? '');
+					}
+					unset($import);
+					if (empty($import_error)) {
+						message::add($text['message-import_complete']);
+					}
+					else {
+						message::add($text['message-import_'.$import_error], 'negative', 5000);
+					}
+					break;
 				case 'test':
 					$test['source'] = $identity->normalize_tn($_POST['test_source'] ?? '');
 					$test['destination'] = $identity->normalize_tn($_POST['test_destination'] ?? '');
@@ -105,6 +131,31 @@
 					}
 					else {
 						message::add($text['message-signing_failed'], 'negative');
+					}
+					break;
+				case 'add_signing_all':
+					//sign each route that does not sign yet, with the destination and attestation shown for it
+					$added = 0;
+					$failed = 0;
+					foreach ($setup->outbound_routes($show_all) as $route) {
+						if ($route['signed']) {
+							continue;
+						}
+						$uuid = $route['dialplan_uuid'];
+						$destination = $_POST['routes'][$uuid]['destination'] ?? $route['destination'];
+						$attest_level = $_POST['routes'][$uuid]['attest_level'] ?? $route['attest_level'];
+						if ($setup->add_signing($uuid, $destination, $attest_level)) {
+							$added++;
+						}
+						else {
+							$failed++;
+						}
+					}
+					if ($added > 0) {
+						message::add($text['message-signing_added_all'].' '.$added);
+					}
+					if ($failed > 0) {
+						message::add($text['message-signing_failed_all'].' '.$failed, 'negative', 5000);
 					}
 					break;
 				case 'remove_signing':
@@ -371,6 +422,47 @@
 	echo "</form>\n";
 	echo "<br /><br />\n";
 
+	//import
+	echo "<form method='post' name='frm_import' id='frm_import' enctype='multipart/form-data'>\n";
+	echo "<input type='hidden' name='action' value='import_certificate'>\n";
+	echo "<b>".$text['header-import']."</b>\n";
+	echo "<br /><br />\n";
+	echo $text['description-import']."\n";
+	echo "<br /><br />\n";
+	echo "<div class='card'>\n";
+	echo "<table width='100%' border='0' cellpadding='0' cellspacing='0'>\n";
+	echo "<tr>\n";
+	echo "<td width='30%' class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-check_private_key']."</td>\n";
+	echo "<td width='70%' class='vtable' align='left'>\n";
+	echo "	<input class='formfld fileinput' type='file' name='import_private_key' id='import_private_key' accept='.key,.pem,.txt'>\n";
+	echo "	<br />\n";
+	echo "	".escape($key['path'])."\n";
+	echo "</td>\n";
+	echo "</tr>\n";
+	echo "<tr>\n";
+	echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-passphrase']."</td>\n";
+	echo "<td class='vtable' align='left'>\n";
+	echo "	<input class='formfld' type='password' name='import_passphrase' maxlength='255' autocomplete='new-password' value=''>\n";
+	echo "	<br />\n";
+	echo "	".$text['description-passphrase']."\n";
+	echo "</td>\n";
+	echo "</tr>\n";
+	echo "<tr>\n";
+	echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-check_certificate']."</td>\n";
+	echo "<td class='vtable' align='left'>\n";
+	echo "	<input class='formfld fileinput' type='file' name='import_certificate' id='import_certificate' accept='.pem,.crt,.cer,.der'>\n";
+	echo "	<br />\n";
+	echo "	".escape($certificate['path'])."\n";
+	echo "</td>\n";
+	echo "</tr>\n";
+	echo "</table>\n";
+	echo "</div>\n";
+	echo "<br />\n";
+	echo button::create(['type'=>'submit','label'=>$text['button-import'],'icon'=>$settings->get('theme', 'button_icon_import'),'id'=>'btn_import','onclick'=>($key['exists'] || $certificate['exists'] ? "return confirm('".$text['confirm-import']."');" : null)]);
+	echo "<input type='hidden' name='".$token['name']."' value='".$token['hash']."'>\n";
+	echo "</form>\n";
+	echo "<br /><br />\n";
+
 	//test
 	echo "<form method='post' name='frm_test' id='frm_test'>\n";
 	echo "<input type='hidden' name='action' value='test'>\n";
@@ -490,6 +582,10 @@
 	}
 	echo "</table>\n";
 	echo "</div>\n";
+	if ($routes_signed < count($routes)) {
+		echo "<br />\n";
+		echo button::create(['type'=>'submit','label'=>$text['button-add_all'],'icon'=>$settings->get('theme', 'button_icon_add'),'id'=>'btn_add_signing_all','name'=>'route_action','value'=>'add_signing_all:','onclick'=>"return confirm('".$text['confirm-add_signing_all']."');"]);
+	}
 	echo "<input type='hidden' name='".$token['name']."' value='".$token['hash']."'>\n";
 	echo "</form>\n";
 	echo "<br />\n";

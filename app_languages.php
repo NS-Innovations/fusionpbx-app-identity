@@ -36,8 +36,20 @@ $text['description-config']['en-gb'] = "These are the settings in use. Values th
 $text['header-certificate']['en-us'] = "Certificate";
 $text['header-certificate']['en-gb'] = "Certificate";
 
-$text['description-certificate']['en-us'] = "Production calls need the private key and certificate issued by your STI-CA. A self-signed test certificate can be generated to try signing and verification. It will not be accepted by carriers. Existing files are never replaced.";
-$text['description-certificate']['en-gb'] = "Production calls need the private key and certificate issued by your STI-CA. A self-signed test certificate can be generated to try signing and verification. It will not be accepted by carriers. Existing files are never replaced.";
+$text['description-certificate']['en-us'] = "Production calls need the private key and certificate issued by your STI-CA. A self-signed test certificate can be generated to try signing and verification. It will not be accepted by carriers. Generating never replaces existing files.";
+$text['description-certificate']['en-gb'] = "Production calls need the private key and certificate issued by your STI-CA. A self-signed test certificate can be generated to try signing and verification. It will not be accepted by carriers. Generating never replaces existing files.";
+
+$text['header-import']['en-us'] = "Import Certificate";
+$text['header-import']['en-gb'] = "Import Certificate";
+
+$text['description-import']['en-us'] = "Import the private key and the certificate issued by your STI-CA. Either can be imported on its own, but the key and certificate in use must belong together. The private key must be EC P-256 in PEM format. The certificate can be PEM or DER and can include the chain. Existing files are kept as a .bak copy. Publish the same certificate at the certificate URL.";
+$text['description-import']['en-gb'] = "Import the private key and the certificate issued by your STI-CA. Either can be imported on its own, but the key and certificate in use must belong together. The private key must be EC P-256 in PEM format. The certificate can be PEM or DER and can include the chain. Existing files are kept as a .bak copy. Publish the same certificate at the certificate URL.";
+
+$text['label-passphrase']['en-us'] = "Passphrase";
+$text['label-passphrase']['en-gb'] = "Passphrase";
+
+$text['description-passphrase']['en-us'] = "Only for an encrypted private key. The key is saved without a passphrase so sign.php can read it.";
+$text['description-passphrase']['en-gb'] = "Only for an encrypted private key. The key is saved without a passphrase so sign.php can read it.";
 
 $text['header-test']['en-us'] = "Test";
 $text['header-test']['en-gb'] = "Test";
@@ -65,6 +77,15 @@ $text['button-test']['en-gb'] = "Test";
 
 $text['button-generate_certificate']['en-us'] = "Generate Test Certificate";
 $text['button-generate_certificate']['en-gb'] = "Generate Test Certificate";
+
+$text['button-add_all']['en-us'] = "Add All";
+$text['button-add_all']['en-gb'] = "Add All";
+
+$text['confirm-add_signing_all']['en-us'] = "Add signing to every route listed that is not signed, using the destination and attestation shown for each?";
+$text['confirm-add_signing_all']['en-gb'] = "Add signing to every route listed that is not signed, using the destination and attestation shown for each?";
+
+$text['confirm-import']['en-us'] = "Replace the private key or certificate in use? The current files are kept as a .bak copy.";
+$text['confirm-import']['en-gb'] = "Replace the private key or certificate in use? The current files are kept as a .bak copy.";
 
 $text['confirm-remove_signing']['en-us'] = "Remove signing from this route?";
 $text['confirm-remove_signing']['en-gb'] = "Remove signing from this route?";
@@ -296,6 +317,45 @@ $text['message-signing_added']['en-gb'] = "Signing added to the route.";
 
 $text['message-signing_failed']['en-us'] = "Signing could not be added. The route must have a bridge and the destination must look like 1\$1 or \$1.";
 $text['message-signing_failed']['en-gb'] = "Signing could not be added. The route must have a bridge and the destination must look like 1\$1 or \$1.";
+
+$text['message-signing_added_all']['en-us'] = "Signing added to routes:";
+$text['message-signing_added_all']['en-gb'] = "Signing added to routes:";
+
+$text['message-signing_failed_all']['en-us'] = "Signing could not be added to routes, check that each destination looks like 1\$1 or \$1:";
+$text['message-signing_failed_all']['en-gb'] = "Signing could not be added to routes, check that each destination looks like 1\$1 or \$1:";
+
+$text['message-import_complete']['en-us'] = "Certificate imported. Make sure the certificate URL serves the same certificate.";
+$text['message-import_complete']['en-gb'] = "Certificate imported. Make sure the certificate URL serves the same certificate.";
+
+$text['message-import_empty']['en-us'] = "Choose a private key or a certificate to import.";
+$text['message-import_empty']['en-gb'] = "Choose a private key or a certificate to import.";
+
+$text['message-import_upload']['en-us'] = "The file could not be uploaded. Files must be no larger than 64 KB.";
+$text['message-import_upload']['en-gb'] = "The file could not be uploaded. Files must be no larger than 64 KB.";
+
+$text['message-import_path']['en-us'] = "The certificate directory does not exist or the web server cannot write to it.";
+$text['message-import_path']['en-gb'] = "The certificate directory does not exist or the web server cannot write to it.";
+
+$text['message-import_key_invalid']['en-us'] = "The private key could not be read. It must be in PEM format, and an encrypted key needs the correct passphrase.";
+$text['message-import_key_invalid']['en-gb'] = "The private key could not be read. It must be in PEM format, and an encrypted key needs the correct passphrase.";
+
+$text['message-import_key_curve']['en-us'] = "The private key must be an EC P-256 (prime256v1) key.";
+$text['message-import_key_curve']['en-gb'] = "The private key must be an EC P-256 (prime256v1) key.";
+
+$text['message-import_certificate_invalid']['en-us'] = "The certificate could not be read. It must be in PEM or DER format.";
+$text['message-import_certificate_invalid']['en-gb'] = "The certificate could not be read. It must be in PEM or DER format.";
+
+$text['message-import_certificate_curve']['en-us'] = "The certificate must have an EC P-256 (prime256v1) public key.";
+$text['message-import_certificate_curve']['en-gb'] = "The certificate must have an EC P-256 (prime256v1) public key.";
+
+$text['message-import_certificate_expired']['en-us'] = "The certificate has expired.";
+$text['message-import_certificate_expired']['en-gb'] = "The certificate has expired.";
+
+$text['message-import_mismatch']['en-us'] = "The private key does not belong to the certificate. Import the key and certificate together. Nothing was replaced.";
+$text['message-import_mismatch']['en-gb'] = "The private key does not belong to the certificate. Import the key and certificate together. Nothing was replaced.";
+
+$text['message-import_write']['en-us'] = "The files could not be written to the certificate directory.";
+$text['message-import_write']['en-gb'] = "The files could not be written to the certificate directory.";
 
 $text['message-signing_removed']['en-us'] = "Signing removed from the route.";
 $text['message-signing_removed']['en-gb'] = "Signing removed from the route.";

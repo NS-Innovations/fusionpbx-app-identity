@@ -56,11 +56,31 @@ and recent failures. Logs lists every sign and verify result and links to the ca
 Setup checks the key, certificate, certificate URL, allowed CIDR and dialplan, and can:
 
 - generate a self-signed test certificate when no key or certificate exists (never replaces existing files)
+- import the private key and certificate issued by the STI-CA (see below)
 - sign a test call and verify it with the local certificate and with the certificate URL
-- add or remove signing on each outbound route
+- add or remove signing on each outbound route, or add it to every unsigned route at once with Add All
 - add or remove the inbound verification dialplan
 
 Settings stay in `/etc/fusionpbx/config.conf`; Setup shows the values in use but does not write the file.
+
+### Import Certificate
+
+Setup can import the private key and the certificate issued by your STI-CA into `identity.path`, under the names set by
+`identity.private_key_name` and `identity.certificate_name`. Import the key, the certificate, or both:
+
+- The private key must be EC P-256 (prime256v1) in PEM format. An encrypted key is decrypted with the passphrase
+  and saved without one, because sign.php cannot enter a passphrase. It is saved with mode 0600.
+- The certificate can be PEM or DER, and can include the intermediate chain. The certificate that belongs to the
+  key is saved first. It must use a P-256 key and must not be expired.
+- The key and certificate in use afterwards must belong together. A key that does not match the current
+  certificate (or the reverse) is refused and nothing is replaced, so import a new pair together.
+- A file that is replaced is kept as `<name>.<YYYYmmddHHMMSS>.bak` in the same directory (with `-1`, `-2`, … added
+  when two imports happen in the same second).
+- Files are limited to 64 KB. The directory must be writable by the web server user.
+
+Import does not publish the certificate. Copy it to the server behind `identity.certificate_url`; Setup reports a
+mismatch until the URL serves the same certificate. Import writes only the default certificate, not the BCID
+(`identity.bcid.*`) certificate.
 
 ## Outbound Routes
 
