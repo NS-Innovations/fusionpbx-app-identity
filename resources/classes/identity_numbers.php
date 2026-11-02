@@ -55,9 +55,11 @@ class identity_numbers {
 	/**
 	 * Check whether a telephone number belongs to a domain.
 	 *
-	 * A number belongs to the domain when it is an enabled inbound destination of that domain. The destination is
-	 * compared with its prefix and area code, with its prefix, and on its own, each normalized the same way as signed
-	 * numbers, so 2025550100 with prefix 1 matches the calling number 12025550100 or +12025550100.
+	 * A number belongs to the domain when it is an enabled inbound destination of that domain. The destination number
+	 * is compared on its own and with its area code, each normalized the same way as signed numbers, so 2025550100
+	 * matches the calling number 12025550100 or +12025550100. Only the fields that the stock groups let superadmin
+	 * edit are used: destination_prefix is ignored because the admin group may edit it, which would let a tenant claim
+	 * another customer's number. An international number must be stored with its country code in the number.
 	 *
 	 * @param string $tn          Calling number, normalized with identity::normalize_tn()
 	 * @param string $domain_uuid Domain UUID
@@ -70,7 +72,7 @@ class identity_numbers {
 		}
 
 		//get the destinations that end with the same digits
-		$sql = "select destination_prefix, destination_area_code, destination_number ";
+		$sql = "select destination_area_code, destination_number ";
 		$sql .= "from v_destinations ";
 		$sql .= "where domain_uuid = :domain_uuid ";
 		$sql .= "and destination_type = 'inbound' ";
@@ -87,10 +89,9 @@ class identity_numbers {
 		//compare each form of the destination with the calling number
 		$identity = new identity();
 		foreach ($rows as $row) {
-			$prefix = (string)($row['destination_prefix'] ?? '');
 			$area_code = (string)($row['destination_area_code'] ?? '');
 			$number = (string)($row['destination_number'] ?? '');
-			foreach ([$prefix.$area_code.$number, $prefix.$number, $area_code.$number, $number] as $candidate) {
+			foreach ([$area_code.$number, $number] as $candidate) {
 				if ($candidate !== '' && $identity->normalize_tn($candidate) === $tn) {
 					return true;
 				}

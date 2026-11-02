@@ -69,7 +69,7 @@
 	$identity_settings = $setup->settings();
 	$identity = new identity($identity_settings);
 	$status = $identity->certificate_status();
-	$routes = $setup->outbound_routes($show_all);
+	$routes = $setup->outbound_routes($show_all && permission_exists('identity_setup_all'));
 	$routes_signed = count(array_filter($routes, function($route) { return $route['signed']; }));
 	$verify_dialplan = $setup->verify_dialplan();
 	$table_exists = $database->table_exists('v_identity_logs');

@@ -160,13 +160,31 @@ class identity_logs {
 			//delete multiple records
 			if (is_array($records) && @sizeof($records) != 0) {
 
+				//get the checked uuids
+				$uuids = [];
+				foreach ($records as $record) {
+					if (!empty($record['checked']) && $record['checked'] == 'true' && is_uuid($record['uuid'] ?? '')) {
+						$uuids[] = $record['uuid'];
+					}
+				}
+
+				//without the all permission only the entries of the current domain can be deleted, not those of other
+				//domains or the verify entries that have no domain; every uuid passed is_uuid() above
+				if (!empty($uuids) && !permission_exists($this->permission_prefix . 'all')) {
+					$sql = "select identity_log_uuid from v_identity_logs ";
+					$sql .= "where domain_uuid = :domain_uuid ";
+					$sql .= "and identity_log_uuid in ('".implode("','", $uuids)."') ";
+					$parameters['domain_uuid'] = $this->domain_uuid;
+					$rows = is_uuid($this->domain_uuid) ? $this->database->select($sql, $parameters, 'all') : [];
+					unset($sql, $parameters);
+					$uuids = is_array($rows) ? array_column($rows, 'identity_log_uuid') : [];
+				}
+
 				//build the delete array
 				$x = 0;
-				foreach ($records as $record) {
-					if (!empty($record['checked']) && $record['checked'] == 'true' && is_uuid($record['uuid'])) {
-						$array[$this->table][$x][$this->uuid_prefix . 'uuid'] = $record['uuid'];
-						$x++;
-					}
+				foreach ($uuids as $uuid) {
+					$array[$this->table][$x][$this->uuid_prefix . 'uuid'] = $uuid;
+					$x++;
 				}
 
 				//delete the checked rows
@@ -190,32 +208,68 @@ class identity_logs {
 	const purge_interval = 3600;
 
 	/**
+	 * Chance, one in this many calls, that a purge runs when the time of the last purge cannot be recorded.
+	 */
+	const purge_fallback_chance = 1000;
+
+	/**
 	 * Delete the logs older than the retention period, at most once per purge_interval.
 	 *
 	 * sign.php and verify.php call this after the response was sent, so the maintenance app is not needed. The time of
-	 * the last purge is kept in a file in the system temporary directory, one per system user, so a file left by the
-	 * command line (root) never stops the web server (www-data) from purging. When the file cannot be written the
-	 * purge is skipped rather than run on every call.
+	 * the last purge is kept in a file in the FusionPBX cache directory, which only the web server user can write, one
+	 * file per system user so a file left by the command line (root) never stops the web server from purging. A time
+	 * in the future (the clock went back) counts as due. When the file cannot be written, the purge runs on about one
+	 * call in purge_fallback_chance instead, so the logs are still limited and the error is logged now and then.
 	 *
 	 * @param database $database       Database object
 	 * @param int      $retention_days Days to keep the logs, 0 keeps them forever
+	 * @param string   $cache_path     Directory for the time of the last purge, the cache location setting
 	 *
 	 * @return bool True if a purge ran and succeeded
 	 */
-	public static function purge_if_due(database $database, int $retention_days): bool {
+	public static function purge_if_due(database $database, int $retention_days, string $cache_path = '/var/cache/fusionpbx'): bool {
 		if ($retention_days <= 0) {
 			return false;
 		}
 		$user = function_exists('posix_geteuid') ? (string)posix_geteuid() : preg_replace('/[^a-z0-9_-]/i', '', get_current_user());
-		$stamp = sys_get_temp_dir().'/identity_logs_purge_'.$user;
+		$stamp = rtrim($cache_path, '/').'/identity_logs_purge_'.$user;
 		$last = @filemtime($stamp);
-		if ($last !== false && time() - $last < self::purge_interval) {
+		$age = $last === false ? PHP_INT_MAX : time() - $last;
+		if ($age >= 0 && $age < self::purge_interval) {
 			return false;
 		}
 		if (!@touch($stamp)) {
-			return false;
+			if (random_int(1, self::purge_fallback_chance) !== 1) {
+				return false;
+			}
+			error_log('identity: cannot write '.$stamp.', the identity logs are purged on about one call in '.self::purge_fallback_chance);
 		}
 		return self::purge($database, $retention_days);
+	}
+
+	/**
+	 * Delete the logs older than the retention period. Called by the maintenance app when it is installed.
+	 *
+	 * @param settings $settings Settings object
+	 *
+	 * @return void
+	 */
+	public static function database_maintenance(settings $settings): void {
+		$database = $settings->database();
+		$identity_settings = (new identity_settings(['database' => $database]))->get();
+		$retention_days = (int)$identity_settings['database_retention_days'];
+		if ($retention_days <= 0) {
+			return;
+		}
+		$purged = self::purge($database, $retention_days);
+		if (class_exists('maintenance_service')) {
+			if ($purged) {
+				maintenance_service::log_write(self::class, "Removed the identity logs older than ".$retention_days." days");
+			}
+			else {
+				maintenance_service::log_write(self::class, "Unable to remove the old identity logs: ".($database->message['message'] ?? 'unknown error'), null, maintenance_service::LOG_ERROR);
+			}
+		}
 	}
 
 	/**

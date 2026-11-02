@@ -99,4 +99,4 @@ $identity_logs->add([
 ]);
 
 // Delete the logs older than the retention period, at most once an hour, after the response was sent
-identity_logs::purge_if_due($database, (int)$identity_settings['database_retention_days']);
+identity_logs::purge_if_due($database, (int)$identity_settings['database_retention_days'], (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));

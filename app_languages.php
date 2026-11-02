@@ -462,6 +462,9 @@ $text['message-import_write']['en-gb'] = "The files could not be written to the 
 $text['message-signing_removed']['en-us'] = "Signing removed from the route.";
 $text['message-signing_removed']['en-gb'] = "Signing removed from the route.";
 
+$text['message-platform_permission']['en-us'] = "The settings, certificates, test and inbound verification apply to the whole platform and need the identity_setup_all permission.";
+$text['message-platform_permission']['en-gb'] = "The settings, certificates, test and inbound verification apply to the whole platform and need the identity_setup_all permission.";
+
 $text['message-signing_remove_failed']['en-us'] = "Signing could not be removed. The route was not found in this domain or does not sign calls.";
 $text['message-signing_remove_failed']['en-gb'] = "Signing could not be removed. The route was not found in this domain or does not sign calls.";
 

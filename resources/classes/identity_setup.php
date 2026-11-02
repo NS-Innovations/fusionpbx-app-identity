@@ -614,7 +614,8 @@ class identity_setup {
 	 *
 	 * Wraps the source, destination and call_reason values of the POST data in ${url_encode(...)} unless they already
 	 * are, whatever their order, so neither the caller ID nor the dialed digits nor the call reason can add parameters
-	 * to the sign.php request. FreeSWITCH substitutes the route captures ($1) before the url_encode API runs.
+	 * to the sign.php request. FreeSWITCH substitutes the route captures ($1) before the url_encode API runs. Adds
+	 * domain_uuid=${domain_uuid} when it is missing, so the attestation check knows the domain of the call.
 	 *
 	 * @param string $data Data of the curl action, "<url> POST <parameters>"
 	 *
@@ -632,6 +633,10 @@ class identity_setup {
 				continue;
 			}
 			$parameters[$i] = $name.'=${url_encode('.$value.')}';
+		}
+		$names = array_map(function($parameter) { return explode('=', $parameter, 2)[0]; }, $parameters);
+		if (!in_array('domain_uuid', $names, true)) {
+			$parameters[] = 'domain_uuid=${domain_uuid}';
 		}
 		return substr($data, 0, $position + 6).implode('&', $parameters);
 	}

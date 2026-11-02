@@ -47,7 +47,8 @@ directory by hand.
 
 ## Getting Started
 
-Open **Advanced > Identity** and click **Setup**. Work down the page:
+Open **Advanced > Identity** and click **Setup**. Everything except the outbound routes applies to the whole platform
+and needs the `identity_setup_all` permission, which superadmin has. Work down the page:
 
 1. **Checks:** the table at the top shows what is missing or wrong. Fix the errors first.
 2. **Settings:** set the certificate URL. Adjust the certificate directory, file names or allowed CIDR if needed, then
@@ -86,8 +87,14 @@ The **Logs** and **Setup** buttons open the other pages.
 
 Entries older than the **Log Retention (days)** setting (90 by default) are deleted automatically. sign.php and
 verify.php run the cleanup at most once an hour, after the response is sent, so it never delays a call and does not
-need the maintenance app. The time of the last cleanup is kept in `/tmp/identity_logs_purge_<uid>`. Set it to 0 to
-keep every entry.
+need the maintenance app. The time of the last cleanup is kept in `identity_logs_purge_<uid>` in the FusionPBX cache
+directory (the `cache/location` setting, `/var/cache/fusionpbx` by default), which only the web server user can
+write. If that file cannot be written, the cleanup runs on about one call in a thousand instead and the error is
+logged. Where the FusionPBX maintenance app is installed, it also runs the cleanup through
+`identity_logs::database_maintenance()`. Set the setting to 0 to keep every entry.
+
+Deleting entries needs `identity_log_delete`. Without `identity_log_all`, only the entries of the current domain can
+be deleted, not the verify entries, which have no domain.
 
 A row with a call UUID links to its call detail record. Verify results have no domain because inbound calls are
 verified before the domain is known, so they appear in every domain's view. **Show All** adds the sign results of the
@@ -234,7 +241,8 @@ editor if you need to change the actions.
 
 The caller ID, the dialed number and any call reason are URL encoded so they cannot add parameters, such as a call
 reason, to the signing request. Earlier versions sent them without encoding; the upgrade updates those routes,
-including signing actions edited by hand, and prints how many it changed.
+including signing actions edited by hand, and prints how many it changed. It also adds `domain_uuid=${domain_uuid}`
+to actions that do not send it, since the attestation check needs the domain of the call.
 
 ### Attestation
 
@@ -246,9 +254,14 @@ The attestation level tells the receiver how much the signer vouches for the cal
 
 Signing A for a number the customer does not own is mis-attestation, which carriers and regulators act on. With the
 **Attestation Check** setting on (the default), a call that the route would sign with A is signed with B unless the
-calling number is an enabled inbound destination of the call's domain. The destination is matched with its prefix
-and area code, so `2025550100` with prefix `1` matches the calling number `12025550100` or `+12025550100`. B and C
-routes are not changed.
+calling number is an enabled inbound destination of the call's domain. The destination number is matched on its own
+and with its area code, so `2025550100` matches the calling number `12025550100` or `+12025550100`. B and C routes
+are not changed.
+
+Only the destination number and area code count, which only superadmin can edit by default. The country code
+(`destination_prefix`) is ignored, because the stock admin group may edit it and could otherwise claim another
+customer's number. Store numbers outside North America with their country code in the destination number, such as
+`442071234567`.
 
 A lowered call is logged as signed with B, with the reason in the message. If a customer may use a number that is not
 one of their destinations, for example a number hosted elsewhere with a letter of authorization, add it as an inbound
@@ -277,14 +290,19 @@ in the dialplan editor and **Remove** deletes it.
 Use the variable in later dialplans, for example to tag or route unverified calls.
 
 A PASSporT whose `iat` is more than 60 seconds from the server clock, older or newer, fails before anything is
-downloaded. Keep the server clock synchronized with NTP. When APCu is enabled, a signature that already verified is
-also refused for the next two minutes, so a captured header cannot be reused on other calls within that window.
-Without APCu, a captured header can be reused for up to 60 seconds.
+downloaded, and so does one whose `attest` is not A, B or C. Keep the server clock synchronized with NTP.
+
+When APCu is enabled, a PASSporT that was already presented is refused for the next two minutes, so a captured header
+cannot be reused on other calls within that window. The check uses the signed payload, which has a unique `origid`
+for each call, so re-encoding the signature does not get around it, and it is claimed before the certificate is
+downloaded, so two calls with the same header at the same moment cannot both pass. A copy that fails verification
+releases the claim, so a forged header cannot block the real call. Without APCu, a captured header can be reused for
+up to 60 seconds.
 
 The certificate is downloaded from the `x5u` URL in the PASSporT. That URL comes from the caller, so the download is
 restricted:
 
-- https only, with the server certificate verified
+- https on port 443 only, with the server certificate verified
 - only public addresses: private, loopback, link-local, shared (CGNAT), benchmark, multicast, reserved and
   documentation ranges are refused, and so are IPv6 ranges that can carry any IPv4 address (6to4, Teredo, NAT64)
 - the address is checked after curl connects and before any request is sent (PHP 8.4 and later), so DNS cannot
@@ -448,11 +466,11 @@ From the command line: `php verify.php '<identity header>' [json]`.
 | Permission | Allows |
 |---|---|
 | `identity_view` | The Identity overview and menu item |
-| `identity_setup` | The Setup page: checks, settings, certificates, tests and dialplan changes |
+| `identity_setup` | The Setup page: the checks, and adding or removing signing on the current domain's outbound routes |
 | `identity_log_view` | The Logs page |
-| `identity_log_delete` | Deleting log entries |
+| `identity_log_delete` | Deleting log entries of the current domain (with `identity_log_all`, any entry) |
 | `identity_log_all` | **Show All** on the overview and Logs pages: the results of every domain |
-| `identity_setup_all` | **Show All** on the Setup page: list, sign and unsign the outbound routes of every domain |
+| `identity_setup_all` | Everything that applies to the whole platform: the settings, importing or generating the certificate, the Test, inbound verification, and **Show All** for the outbound routes of every domain. Give it only to platform administrators |
 | `identity_log_add` | Adding log entries (sign.php and verify.php grant it to themselves temporarily) |
 
 All are granted to superadmin by default.

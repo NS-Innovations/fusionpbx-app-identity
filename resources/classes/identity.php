@@ -357,9 +357,9 @@ class identity {
 			return false;
 		}
 
-		// Attestation missing
-		if (empty($payload_json['attest'])) {
-			$this->error_message = "Attestation missing";
+		// Attestation must be A, B or C, it is returned to FreeSWITCH in identity_verstat
+		if (!in_array($payload_json['attest'] ?? null, ['A', 'B', 'C'], true)) {
+			$this->error_message = "Attestation missing or not A, B or C";
 			return false;
 		}
 
@@ -369,14 +369,38 @@ class identity {
 			return false;
 		}
 
-		// Replay: refuse a signature already verified within the freshness window (needs APCu, shared by the PHP-FPM workers)
-		$replay_key = 'identity_replay_' . hash('sha256', $signature);
+		// Replay: refuse a PASSporT already presented within the freshness window (needs APCu, shared by the PHP-FPM
+		// workers). The key is the signed payload, which has a unique origid per call and cannot be re-encoded without
+		// breaking the signature, unlike the signature text. apcu_add() claims it atomically before the download, and
+		// the claim is released when verification fails so a forged copy cannot block the real call.
+		$replay_key = 'identity_replay_' . hash('sha256', $payload);
 		$replay_cache = empty($certificate_pem) && function_exists('apcu_enabled') && apcu_enabled();
-		if ($replay_cache && apcu_exists($replay_key)) {
+		if ($replay_cache && !apcu_add($replay_key, 1, 2 * self::MAX_PASSPORT_AGE)) {
 			$this->error_message = "PASSporT was already used for another call";
 			return false;
 		}
 
+		// Check the signature
+		$verified = $this->check_signature($header_b64, $payload_b64, $signature, $header_certificate_url, $certificate_pem, $payload_json);
+		if ($replay_cache && !$verified) {
+			apcu_delete($replay_key);
+		}
+		return $verified;
+	}
+
+	/**
+	 * Check the signature of a decoded PASSporT and save its claims when it is valid.
+	 *
+	 * @param string $header_b64             Header as sent, base64url encoded
+	 * @param string $payload_b64            Payload as sent, base64url encoded
+	 * @param string $signature              Signature as sent, base64url encoded
+	 * @param string $header_certificate_url Certificate URL (x5u) from the header
+	 * @param string $certificate_pem        Certificate to use instead of downloading the URL, or empty
+	 * @param array  $payload_json           Decoded payload
+	 *
+	 * @return bool True if the signature is valid
+	 */
+	private function check_signature(string $header_b64, string $payload_b64, string $signature, string $header_certificate_url, string $certificate_pem, array $payload_json): bool {
 		// Use the provided certificate or download it from the header URL
 		if (!empty($certificate_pem)) {
 			$header_certificate_string = $certificate_pem;
@@ -443,9 +467,6 @@ class identity {
 			}
 			if (isset($payload_json['crn']) && is_string($payload_json['crn'])) {
 				$this->crn = $payload_json['crn'];
-			}
-			if ($replay_cache) {
-				apcu_add($replay_key, 1, 2 * self::MAX_PASSPORT_AGE);
 			}
 			$this->error_message = "";
 			return true;
@@ -753,6 +774,10 @@ class identity {
 			return false;
 		}
 		$port = (int)($parts['port'] ?? 443);
+		if ($port !== 443) {
+			$this->error_message = "Certificate URL must use the https port 443: " . $url;
+			return false;
+		}
 
 		// Use the cached certificate
 		$cache_key = 'identity_x5u_' . hash('sha256', $url);
