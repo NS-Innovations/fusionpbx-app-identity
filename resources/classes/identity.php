@@ -1105,49 +1105,19 @@ class identity {
 	}
 
 	/**
-	 * Generate unique identifier using platform-specific methods.
+	 * Generate a random (version 4) UUID for the PASSporT origid.
 	 *
-	 * Attempts to generate a UUID using OS-specific methods: uuidgen on FreeBSD
-	 * and Linux (/proc/sys/kernel/random/uuid then uuidgen), com_create_guid on
-	 * Windows. Exits with error message if generation fails.
+	 * Uses random_bytes(), which is available on every platform and never
+	 * runs a command or prints anything, since the output of sign.php is
+	 * sent as the SIP Identity header.
 	 *
 	 * @return string Generated UUID as a string
 	 */
 	private function generate_uuid(): string {
-		$uuid = null;
-		if (PHP_OS === 'FreeBSD') {
-			$uuid = trim(shell_exec("uuidgen"));
-			if (is_uuid($uuid)) {
-				return $uuid;
-			} else {
-				echo "Please install uuidgen.\n";
-				exit;
-			}
-		}
-		if (PHP_OS === 'Linux') {
-			$uuid = trim(file_get_contents('/proc/sys/kernel/random/uuid'));
-			if (is_uuid($uuid)) {
-				return $uuid;
-			} else {
-				$uuid = trim(shell_exec("uuidgen"));
-				if (is_uuid($uuid)) {
-					return $uuid;
-				} else {
-					echo "Please install uuidgen.\n";
-					exit;
-				}
-			}
-		}
-		if ((strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') && function_exists('com_create_guid')) {
-			$uuid = trim(com_create_guid(), '{}');
-			if (is_uuid($uuid)) {
-				return $uuid;
-			} else {
-				echo "The com_create_guid() function failed to create a uuid.\n";
-				exit;
-			}
-		}
-		return '';
+		$bytes = random_bytes(16);
+		$bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+		$bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+		return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
 	}
 
 	/**
