@@ -45,6 +45,26 @@ systemctl restart php8.4-fpm
 `ReadWritePaths` adds to the paths the service already allows. Alternatively, copy the key and certificate into the
 directory by hand.
 
+FreeSWITCH reaches sign.php and verify.php through the `127.0.0.1` server block of the FusionPBX nginx
+configuration. They are also served by the public server blocks, where the **Allowed CIDR** setting is their only
+protection. Anyone who can use sign.php gets calls signed with your certificate, so if a reverse proxy, tunnel or load
+balancer on the same host forwards public requests, they arrive from `127.0.0.1` and pass that check. Refuse both
+scripts on the public server blocks by adding these lines to each `server` block in
+`/etc/nginx/sites-enabled/fusionpbx` except the one that listens on `127.0.0.1:80`:
+
+```
+	location = /app/identity/sign.php { return 404; }
+	location = /app/identity/verify.php { return 404; }
+```
+
+Exact match (`=`) locations take priority over the `\.php$` location wherever they are placed. Run `nginx -t` and
+`systemctl reload nginx`, then check that the public address returns 404 and the local one still signs:
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' https://<your host>/app/identity/sign.php
+curl -s -X POST -d "source=12025550100" -d "destination=13105551234" http://127.0.0.1/app/identity/sign.php
+```
+
 ## Getting Started
 
 Open **Advanced > Identity** and click **Setup**. Everything except the outbound routes applies to the whole platform
