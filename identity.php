@@ -76,11 +76,17 @@
 
 //get the statistics
 	if ($table_exists) {
-		//build the where clause, verify logs have no domain because inbound calls are verified before the domain is known
+		//build the where clause, verify logs have no domain because inbound calls are verified before the domain is known,
+		//so they hold the calls of every domain and are only shown with the all permission
 		$sql_where = "where insert_date >= now() - cast(:interval as interval) ";
 		$parameters['interval'] = $periods[$period]['interval'];
 		if (!$show_all) {
-			$sql_where .= "and (domain_uuid = :domain_uuid or domain_uuid is null) ";
+			if (permission_exists('identity_log_all')) {
+				$sql_where .= "and (domain_uuid = :domain_uuid or domain_uuid is null) ";
+			}
+			else {
+				$sql_where .= "and domain_uuid = :domain_uuid ";
+			}
 			$parameters['domain_uuid'] = $domain_uuid;
 		}
 

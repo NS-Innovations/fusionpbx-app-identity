@@ -98,10 +98,16 @@
 		exit;
 	}
 
-//build the where clause, verify logs have no domain because inbound calls are verified before the domain is known
+//build the where clause, verify logs have no domain because inbound calls are verified before the domain is known,
+//so they hold the calls of every domain and are only shown with the all permission
 	$sql_where = "where true ";
 	if ($show != "all" || !permission_exists('identity_log_all')) {
-		$sql_where .= "and (l.domain_uuid = :domain_uuid or l.domain_uuid is null) ";
+		if (permission_exists('identity_log_all')) {
+			$sql_where .= "and (l.domain_uuid = :domain_uuid or l.domain_uuid is null) ";
+		}
+		else {
+			$sql_where .= "and l.domain_uuid = :domain_uuid ";
+		}
 		$parameters['domain_uuid'] = $domain_uuid;
 	}
 	if (!empty($type)) {

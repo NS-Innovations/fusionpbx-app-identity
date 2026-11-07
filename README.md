@@ -97,8 +97,9 @@ Deleting entries needs `identity_log_delete`. Without `identity_log_all`, only t
 be deleted, not the verify entries, which have no domain.
 
 A row with a call UUID links to its call detail record. Verify results have no domain because inbound calls are
-verified before the domain is known, so they appear in every domain's view. **Show All** adds the sign results of the
-other domains.
+verified before the domain is known, so they hold the inbound calls of every domain. They are shown, on the overview
+and Logs pages, only to users with `identity_log_all`; other users see only the sign results of their own domain.
+**Show All** adds the sign results of the other domains.
 
 ## Setup
 
@@ -472,7 +473,7 @@ From the command line: `php verify.php '<identity header>' [json]`.
 | `identity_setup` | The Setup page: the checks, and adding or removing signing on the current domain's outbound routes |
 | `identity_log_view` | The Logs page |
 | `identity_log_delete` | Deleting log entries of the current domain (with `identity_log_all`, any entry) |
-| `identity_log_all` | **Show All** on the overview and Logs pages: the results of every domain |
+| `identity_log_all` | **Show All** on the overview and Logs pages: the results of every domain. Also needed to see verify results, which have no domain |
 | `identity_setup_all` | Everything that applies to the whole platform: the settings, importing or generating the certificate, the Test, inbound verification, and **Show All** for the outbound routes of every domain. Give it only to platform administrators |
 | `identity_log_add` | Adding log entries (sign.php and verify.php grant it to themselves temporarily) |
 
