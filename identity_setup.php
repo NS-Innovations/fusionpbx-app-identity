@@ -46,6 +46,7 @@
 	$setup = new identity_setup(['database' => $database, 'config' => $config, 'domain_uuid' => $domain_uuid]);
 	$settings_manager = new identity_settings(['database' => $database, 'config' => $config]);
 	$identity_settings = $settings_manager->get();
+	$identity_settings['cache_path'] = (string)$settings->get('cache', 'location', '/var/cache/fusionpbx');
 	$identity = new identity($identity_settings);
 
 //get posted data
@@ -432,6 +433,23 @@
 			$checks[] = [$text['label-check_trust_list'], 'ok', $trust_total.' '.$text['label-certificates']];
 		}
 		unset($trust_total, $trust_expired, $trust_certificate, $matches, $block);
+	}
+
+	//revocation, checked against the crl once the trust list is set because the crl signer must chain to it
+	if (empty($identity_settings['crl_url'])) {
+		if (!empty($verify_dialplan) || !empty($identity_settings['trust_list'])) {
+			$checks[] = [$text['label-check_crl'], 'warning', $text['message-crl_off']];
+		}
+	}
+	else if (!empty($identity_settings['trust_list'])) {
+		$crl = new identity_crl($identity, $identity_settings['crl_url'], $identity_settings['cache_path']);
+		if ($crl->load()) {
+			$checks[] = [$text['label-check_crl'], 'ok', $text['label-crl_updated'].' '.date('Y-m-d H:i', $crl->this_update).', '.$text['label-crl_next'].' '.date('Y-m-d H:i', $crl->next_update).', '.$crl->count.' '.$text['label-crl_revoked']];
+		}
+		else {
+			$checks[] = [$text['label-check_crl'], 'error', $text['message-crl_failed'].' '.$crl->error_message];
+		}
+		unset($crl);
 	}
 
 	//brands file, a missing or malformed file only shows in the php error log when calls are signed

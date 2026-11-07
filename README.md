@@ -25,7 +25,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the changes in each release.
 - APCu for PHP-FPM is recommended: without it the replay check is off and the certificate of each inbound call is
   downloaded again instead of being cached
 - A STIR/SHAKEN certificate and private key from an STI-CA, and an https URL to publish the certificate at
-- To verify inbound calls, the STI-CA root certificates from the STI-PA (see [Trust List](#trust-list))
+- To verify inbound calls, the STI-CA root certificates and the STI-PA root certificate from the STI-PA (see
+  [Trust List](#trust-list)), and outbound https access to the STI-PA CRL
 
 ## Install
 
@@ -157,6 +158,9 @@ The checks table shows ok, warning or error, with details, for:
 - inbound verification
 - the trust list, when inbound verification is on or **Trust List** is set: present and readable, with the number of
   certificates, and a warning when some have expired
+- revocation, when **Trust List** is set: the CRL is downloaded and checked the way verify.php does, and the check
+  shows its date, next update and number of revoked certificates, or why it cannot be used. A warning when **CRL URL**
+  is empty
 - the brands file, when **Brands File** is set: present and readable, with the number of brands and numbers, and a
   warning when enabled brands use the `bcid` profile but **BCID Certificate URL** is not set
 - the BCID private key, certificate, key pair and certificate URL, when **BCID Certificate URL** is set, with the same
@@ -181,7 +185,8 @@ checked first; an invalid value is listed with a **Back** button that returns to
 | Attestation Check | true | Sign with B instead of A when the calling number is not a destination of the domain (see [Attestation](#attestation)) |
 | Debug | false | Return error text instead of the normal response |
 | Log Retention (days) | 90 | Days to keep the identity logs; 0 keeps them forever (see [Logs](#logs)) |
-| Trust List | *(none)* | PEM file of the STI-CA root certificates approved by the STI-PA. Inbound calls are reported as `No-TN-Validation` while it is empty (see [Inbound Verification](#inbound-verification)) |
+| Trust List | *(none)* | PEM file of the STI-CA root certificates approved by the STI-PA, and the STI-PA root certificate. Inbound calls are reported as `No-TN-Validation` while it is empty (see [Inbound Verification](#inbound-verification)) |
+| CRL URL | `https://authenticate-api.iconectiv.com/download/v1/crl` | Certificate revocation list of the STI-PA that inbound calls are checked against; revocation is not checked when empty (see [Revocation](#revocation)) |
 | Brands File | *(none)* | Brands file for branded calling. Branding is off when empty |
 | BCID Private Key File | `bcid_private.key` | File name of the BCID private key in the certificate directory |
 | BCID Certificate File | `bcid_certificate.pem` | File name of the BCID certificate in the certificate directory |
@@ -354,6 +359,8 @@ A passed result means:
   chains, through any intermediate certificates served with it, to a certificate in the trust list, with every
   certificate in the chain within its validity dates. Only the trust list is trusted, not the system's web CA
   certificates
+- neither that certificate nor an intermediate certificate served with it is in the STI-PA certificate revocation
+  list (see [Revocation](#revocation))
 - the signature is valid for that certificate
 
 Rich Call Data (the JSON output below) is only returned when the result is a pass.
@@ -387,17 +394,39 @@ The PHP curl extension is required.
 
 Service providers registered with the STI-PA download the list of approved STI-CA certificates from the STI-PA. Save
 their root certificates, one after the other in PEM format, in a file the web server user can read, for example
-`/etc/fusionpbx/certs/sti_ca_list.pem`, and set **Trust List** in Setup > Settings. The Trust List check counts the
+`/etc/fusionpbx/certs/sti_ca_list.pem`, and set **Trust List** in Setup > Settings. Add the STI-PA root certificate
+(currently `STI-PA Root Certificate 2`), which the STI-PA also publishes, to the same file: the certificate revocation
+list is signed by a certificate issued by it (see [Revocation](#revocation)). The Trust List check counts the
 certificates and warns about expired ones. The STI-PA updates the list when STI-CAs are added or removed, so download
 it again regularly. Add the root certificates of any other signers you accept, such as those of BCID certificates, to
 the same file.
+
+#### Revocation
+
+The STI-PA publishes one certificate revocation list (CRL) for every STI-CA, at the **CRL URL** setting. It is an
+indirect CRL: it is signed by the `STI-PA CRL` certificate, which is issued by the STI-PA root certificate, and each
+entry names the issuer of the revoked certificate. The certificate of an inbound call, and each intermediate
+certificate served with it, fails verification when it is in the CRL.
+
+The CRL is used only when:
+
+- its signer certificate, downloaded from the URL in the CRL (Authority Information Access), has the CRL issuer as its
+  subject, may sign CRLs, and chains to the trust list, which therefore needs the STI-PA root certificate
+- its signature is valid
+- its next update time has not passed, and its this update time is not more than five minutes ahead of the clock
+- it is not a delta CRL and has no critical extension that is not understood
+
+Both downloads have the same restrictions as the certificate download above, and the CRL may be up to 4 MB. The CRL
+is kept in the FusionPBX cache directory (`identity_crl_<uid>_<hash>.crl`) and downloaded again after an hour. When
+that download fails, the kept CRL is used until its next update time and the failure is written to the PHP error log;
+the download is tried again a minute later, not on every call. When no current CRL can be used, inbound calls with a
+valid signature are reported as `No-TN-Validation` and the Revocation check in Setup shows why. Clear **CRL URL** to
+turn the check off.
 
 #### Limitations
 
 verify.php does not yet:
 
-- check certificate revocation (the CRL published by the STI-PA), so a revoked certificate still passes until it
-  expires
 - check the logo digest (`rcdi`), so a logo returned in the JSON output was signed as a URL but its content was not
   compared with the digest
 - check that the TNAuthList of the certificate covers the calling number, which ATIS does not require for service

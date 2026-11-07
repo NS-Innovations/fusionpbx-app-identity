@@ -13,8 +13,9 @@ The first release with a web interface. Earlier versions were `sign.php` and `ve
 - **Verification:** verify.php checks the `Identity` header of inbound calls and returns `TN-Validation-Passed-A`,
   `-B` or `-C`, `TN-Validation-Failed` or `No-TN-Validation` for the `identity_verstat` channel variable. A pass
   requires a recent PASSporT that was not already used, the call's calling and called numbers, a certificate that
-  carries TNAuthList and chains to the STI-CA roots in the Trust List setting, and a valid signature. Certificates
-  are downloaded over https from public addresses only.
+  carries TNAuthList and chains to the STI-CA roots in the Trust List setting, is not revoked in the STI-PA
+  certificate revocation list (CRL), and a valid signature. Certificates and the CRL are downloaded over https from
+  public addresses only, and the CRL is kept for an hour in the FusionPBX cache directory.
 - **Setup page:** checks of the whole configuration, the settings (stored in Default Settings), importing the STI-CA
   key and certificate (PEM or DER, with the chain, encrypted keys allowed) or generating a test certificate, a test
   that signs and verifies a call, and adding or removing signing on outbound routes and the inbound verification
@@ -53,8 +54,10 @@ Behaviour changes to check before upgrading:
 - **Attestation:** calls from numbers that are not inbound destinations of their domain are signed with B instead of
   A. Turn the Attestation Check setting off to keep the old behaviour.
 - **Inbound verification:** calls that passed before return `No-TN-Validation` until the Trust List setting points to
-  the STI-CA root certificates from the STI-PA, and `TN-Validation-Failed` when their numbers do not match the call
-  or their certificate does not chain to the trust list. Review dialplans that route on `identity_verstat`.
+  the STI-CA root certificates and the STI-PA root certificate from the STI-PA, and while the STI-PA certificate
+  revocation list cannot be downloaded and checked. They return `TN-Validation-Failed` when their numbers do not
+  match the call, their certificate does not chain to the trust list, or it is revoked. Review dialplans that route
+  on `identity_verstat`. The server needs outbound https access to the CRL URL.
 - **Certificate URL:** must be https. An http URL is reported as an error in Setup and cannot be saved.
 - **Allowed CIDR:** an empty or invalid entry no longer allows every address; an empty list allows none.
 - **nginx:** sign.php and verify.php should only be reachable through the `127.0.0.1` server block. See Install in the
@@ -62,7 +65,6 @@ Behaviour changes to check before upgrading:
 
 ### Known limitations
 
-- verify.php does not check certificate revocation, so a revoked certificate passes until it expires.
 - verify.php does not check the logo digest (`rcdi`) of Rich Call Data.
 - The call's numbers are compared with the signed ones as digits, with a leading 1 added to 10 digit North American
   numbers. Numbers in other national formats must be sent in the same form they were signed in.

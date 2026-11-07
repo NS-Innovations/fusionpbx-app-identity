@@ -145,6 +145,20 @@ class identity {
 	private $trust_list = '';
 
 	/**
+	 * URL of the CRL that certificates are checked against, or empty to not check revocation.
+	 *
+	 * @var string
+	 */
+	private $crl_url = '';
+
+	/**
+	 * Directory the downloaded CRL is kept in between calls, the FusionPBX cache location.
+	 *
+	 * @var string
+	 */
+	private $cache_path = '/var/cache/fusionpbx';
+
+	/**
 	 * Default attestation level (A, B, or C) for new PASSporTs.
 	 *
 	 * @var string
@@ -175,6 +189,8 @@ class identity {
 		$this->certificate_path = $setting_array['certificate_path'] ?? '';
 		$this->certificate_url = $setting_array['certificate_url'] ?? '';
 		$this->trust_list = $setting_array['trust_list'] ?? '';
+		$this->crl_url = $setting_array['crl_url'] ?? '';
+		$this->cache_path = $setting_array['cache_path'] ?? '/var/cache/fusionpbx';
 	}
 
 	/**
@@ -481,8 +497,9 @@ class identity {
 	/**
 	 * Check that a validly signed PASSporT comes from an authorized signer and was checked against the call.
 	 *
-	 * A certificate that is not a STIR/SHAKEN certificate or does not chain to the trust list fails
-	 * (TN-Validation-Failed). Without a usable trust list, or without the numbers of the call, the PASSporT cannot be
+	 * A certificate that is not a STIR/SHAKEN certificate, does not chain to the trust list, or is revoked, or that
+	 * was served with a revoked intermediate certificate, fails (TN-Validation-Failed). Without a usable trust list,
+	 * without a current CRL when revocation is checked, or without the numbers of the call, the PASSporT cannot be
 	 * fully checked and the result is No-TN-Validation rather than a pass or a failure.
 	 *
 	 * @param string $certificate_string Certificate downloaded from x5u, with any intermediate certificates
@@ -491,12 +508,32 @@ class identity {
 	 * @return bool True if the signer is authorized and the numbers were checked
 	 */
 	private function check_authorization(string $certificate_string, bool $numbers_given): bool {
-		if ($this->trust_list === '' || !is_file($this->trust_list) || !is_readable($this->trust_list)) {
+		if (!$this->trust_list_usable()) {
 			$this->verstat = 'No-TN-Validation';
 			$this->error_message = $this->trust_list === '' ? "No trust list is set, the signer was not checked" : "The trust list " . $this->trust_list . " cannot be read, the signer was not checked";
 			return false;
 		}
-		if (!$this->check_certificate_chain($certificate_string)) {
+
+		// The signer's certificate first, then any intermediate certificates served with it
+		preg_match_all('/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/s', $certificate_string, $matches);
+		$certificates = [];
+		foreach ($matches[0] as $block) {
+			$certificate = @openssl_x509_read($block);
+			if ($certificate === false) {
+				break;
+			}
+			$certificates[] = $certificate;
+		}
+		while (openssl_error_string()) {}
+		if (empty($certificates) || count($certificates) != count($matches[0])) {
+			$this->error_message = "Failed to read certificate.";
+			return false;
+		}
+
+		if (!$this->check_certificate_chain($certificates)) {
+			return false;
+		}
+		if (!$this->check_revocation($certificates)) {
 			return false;
 		}
 		if (!$numbers_given) {
@@ -508,31 +545,46 @@ class identity {
 	}
 
 	/**
+	 * Check that the trust list is set and can be read.
+	 *
+	 * @return bool True if the trust list can be used
+	 */
+	private function trust_list_usable(): bool {
+		return $this->trust_list !== '' && is_file($this->trust_list) && is_readable($this->trust_list);
+	}
+
+	/**
 	 * Check that a certificate is a STIR/SHAKEN certificate that chains to the trust list.
 	 *
-	 * The first certificate is the signer's, any others are intermediates and are only used to build the chain. Only
-	 * the trust list is trusted: openssl_x509_checkpurpose() adds the system certificate directory (the web PKI roots)
-	 * unless a directory is given, so an empty temporary directory is passed with the trust list. The dates of every
-	 * certificate in the chain are checked. Revocation is not.
-	 *
-	 * @param string $certificate_string PEM certificate, optionally followed by intermediate certificates
+	 * @param array $certificates The signer's certificate, then the intermediate certificates served with it
 	 *
 	 * @return bool True if the certificate chains to the trust list, otherwise false with error_message set
 	 */
-	private function check_certificate_chain(string $certificate_string): bool {
-		preg_match_all('/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/s', $certificate_string, $matches);
-		$blocks = $matches[0];
-		$certificate = empty($blocks) ? false : @openssl_x509_read($blocks[0]);
-		if ($certificate === false) {
-			while (openssl_error_string()) {}
-			$this->error_message = "Failed to read certificate.";
-			return false;
-		}
-
+	private function check_certificate_chain(array $certificates): bool {
 		// Every STIR/SHAKEN certificate carries TNAuthList, a certificate issued for anything else does not
-		$extensions = openssl_x509_parse($certificate)['extensions'] ?? [];
+		$extensions = openssl_x509_parse($certificates[0])['extensions'] ?? [];
 		if (!isset($extensions[self::TN_AUTH_LIST_OID]) && !isset($extensions['tnAuthList']) && !isset($extensions['TNAuthList'])) {
 			$this->error_message = "The certificate is not a STIR/SHAKEN certificate (no TNAuthList extension)";
+			return false;
+		}
+		return $this->chains_to_trust_list($certificates[0], array_slice($certificates, 1));
+	}
+
+	/**
+	 * Check that a certificate chains to a certificate in the trust list, and to nothing else.
+	 *
+	 * The intermediate certificates are only used to build the chain. openssl_x509_checkpurpose() adds the system
+	 * certificate directory (the web PKI roots) unless a directory is given, so an empty temporary directory is passed
+	 * with the trust list. The dates of every certificate in the chain are checked, revocation is not.
+	 *
+	 * @param \OpenSSLCertificate $certificate   Certificate to check
+	 * @param array               $intermediates Intermediate certificates (OpenSSLCertificate) to build the chain with
+	 *
+	 * @return bool True if the certificate chains to the trust list, otherwise false with error_message set
+	 */
+	public function chains_to_trust_list($certificate, array $intermediates = []): bool {
+		if (!$this->trust_list_usable()) {
+			$this->error_message = "The trust list is not set or cannot be read";
 			return false;
 		}
 
@@ -543,9 +595,14 @@ class identity {
 			return false;
 		}
 		$untrusted_file = null;
-		if (count($blocks) > 1) {
+		if (!empty($intermediates)) {
+			$pem = '';
+			foreach ($intermediates as $intermediate) {
+				openssl_x509_export($intermediate, $intermediate_pem);
+				$pem .= $intermediate_pem;
+			}
 			$untrusted_file = @tempnam(sys_get_temp_dir(), 'identity_chain_');
-			if ($untrusted_file === false || @file_put_contents($untrusted_file, implode("\n", array_slice($blocks, 1)) . "\n") === false) {
+			if ($untrusted_file === false || @file_put_contents($untrusted_file, $pem) === false) {
 				if ($untrusted_file !== false) {
 					@unlink($untrusted_file);
 				}
@@ -566,6 +623,36 @@ class identity {
 		if ($result !== true) {
 			$this->error_message = "The certificate does not chain to the trust list, or a certificate in the chain is expired or not yet valid";
 			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Check that neither the signer's certificate nor an intermediate certificate served with it is revoked.
+	 *
+	 * Uses the CRL at crl_url (see identity_crl). Not checked when crl_url is empty. Without a current, valid CRL the
+	 * certificate cannot be checked and the result is No-TN-Validation.
+	 *
+	 * @param array $certificates The signer's certificate, then the intermediate certificates served with it
+	 *
+	 * @return bool True if none is revoked, otherwise false with verstat and error_message set
+	 */
+	private function check_revocation(array $certificates): bool {
+		if ($this->crl_url === '') {
+			return true;
+		}
+		$crl = new identity_crl($this, $this->crl_url, $this->cache_path);
+		if (!$crl->load()) {
+			$this->verstat = 'No-TN-Validation';
+			$this->error_message = "Revocation could not be checked: " . $crl->error_message;
+			return false;
+		}
+		foreach ($certificates as $i => $certificate) {
+			if ($crl->is_revoked($certificate)) {
+				$this->verstat = 'TN-Validation-Failed';
+				$this->error_message = ($i == 0 ? "The certificate is revoked: " : "An intermediate certificate is revoked: ") . (openssl_x509_parse($certificate)['name'] ?? '');
+				return false;
+			}
 		}
 		return true;
 	}
@@ -917,15 +1004,10 @@ class identity {
 	}
 
 	/**
-	 * Download a certificate from a URL.
+	 * Download a certificate from a URL, using the APCu cache when it is available.
 	 *
-	 * The x5u URL of an inbound call comes from the caller, so only https is allowed and the connection may only be to
-	 * a public address (see is_public_address()). curl resolves the host within the timeout and the address is checked
-	 * after it connects but before any request is sent (CURLOPT_PREREQFUNCTION, PHP 8.4 and later), so DNS cannot
-	 * point it elsewhere afterwards. Before PHP 8.4 the host is resolved and checked first and the connection pinned
-	 * to the checked address; that lookup is not limited by the timeout. Redirects and proxies are never used, the
-	 * download stops at MAX_CERTIFICATE_SIZE, and only HTTP 200 is accepted. Certificates are cached in APCu for
-	 * CERTIFICATE_CACHE_TTL seconds when it is available.
+	 * The x5u URL of an inbound call comes from the caller, so it is downloaded with fetch_url() and its restrictions.
+	 * Certificates are cached in APCu for CERTIFICATE_CACHE_TTL seconds when it is available.
 	 *
 	 * @param string $url       Certificate URL
 	 * @param bool   $use_cache Use and fill the APCu cache
@@ -933,20 +1015,6 @@ class identity {
 	 * @return string|false The downloaded content, or false with error_message set
 	 */
 	public function fetch_certificate(string $url, bool $use_cache = true) {
-		// Check the URL
-		$parts = parse_url($url);
-		$scheme = strtolower($parts['scheme'] ?? '');
-		$host = strtolower(trim($parts['host'] ?? '', '[]'));
-		if ($host === '' || $scheme !== 'https' || isset($parts['user']) || isset($parts['pass'])) {
-			$this->error_message = "Certificate URL must be an https URL without a user name: " . $url;
-			return false;
-		}
-		$port = (int)($parts['port'] ?? 443);
-		if ($port !== 443) {
-			$this->error_message = "Certificate URL must use the https port 443: " . $url;
-			return false;
-		}
-
 		// Use the cached certificate
 		$cache_key = 'identity_x5u_' . hash('sha256', $url);
 		$apcu = $use_cache && function_exists('apcu_enabled') && apcu_enabled();
@@ -957,14 +1025,60 @@ class identity {
 			}
 		}
 
+		// Download it
+		$body = $this->fetch_url($url, self::MAX_CERTIFICATE_SIZE, 'certificate');
+		if ($body === false) {
+			return false;
+		}
+
+		// Cache only a readable certificate
+		if ($apcu && @openssl_x509_read($body) !== false) {
+			apcu_store($cache_key, $body, self::CERTIFICATE_CACHE_TTL);
+		}
+		while (openssl_error_string()) {}
+
+		return $body;
+	}
+
+	/**
+	 * Download a URL with the restrictions for URLs that may come from a caller.
+	 *
+	 * Only https on port 443 is allowed and the connection may only be to a public address (see is_public_address()).
+	 * curl resolves the host within the timeout and the address is checked after it connects but before any request
+	 * is sent (CURLOPT_PREREQFUNCTION, PHP 8.4 and later), so DNS cannot point it elsewhere afterwards. Before PHP 8.4
+	 * the host is resolved and checked first and the connection pinned to the checked address; that lookup is not
+	 * limited by the timeout. Redirects and proxies are never used, the download stops at max_size, and only HTTP 200
+	 * is accepted.
+	 *
+	 * @param string $url      URL to download
+	 * @param int    $max_size Largest response accepted, in bytes
+	 * @param string $what     What is downloaded, for the error messages, such as certificate or CRL
+	 *
+	 * @return string|false The downloaded content, or false with error_message set
+	 */
+	public function fetch_url(string $url, int $max_size, string $what) {
+		// Check the URL
+		$parts = parse_url($url);
+		$scheme = strtolower($parts['scheme'] ?? '');
+		$host = strtolower(trim($parts['host'] ?? '', '[]'));
+		if ($host === '' || $scheme !== 'https' || isset($parts['user']) || isset($parts['pass'])) {
+			$this->error_message = ucfirst($what) . " URL must be an https URL without a user name: " . $url;
+			return false;
+		}
+		$port = (int)($parts['port'] ?? 443);
+		if ($port !== 443) {
+			$this->error_message = ucfirst($what) . " URL must use the https port 443: " . $url;
+			return false;
+		}
+
 		if (!function_exists('curl_init')) {
-			$this->error_message = "The PHP curl extension is required to download the certificate";
+			$this->error_message = "The PHP curl extension is required to download the " . $what;
 			return false;
 		}
 
 		// Refuse an address in the URL itself without connecting
 		if (filter_var($host, FILTER_VALIDATE_IP) && !self::is_public_address($host)) {
-			$this->error_message = "Certificate URL must use a public address: " . $url;
+			$this->error_message = ucfirst($what) . " URL must use a public address: " . $url;
 			return false;
 		}
 
@@ -990,19 +1104,19 @@ class identity {
 				}
 			}
 			if (empty($addresses)) {
-				$this->error_message = "Certificate URL host could not be resolved: " . $url;
+				$this->error_message = ucfirst($what) . " URL host could not be resolved: " . $url;
 				return false;
 			}
 			foreach ($addresses as $address) {
 				if (!self::is_public_address($address)) {
-					$this->error_message = "Certificate URL must use a public address: " . $url;
+					$this->error_message = ucfirst($what) . " URL must use a public address: " . $url;
 					return false;
 				}
 			}
 			$options[CURLOPT_RESOLVE] = [$host . ':' . $port . ':' . (strpos($addresses[0], ':') !== false ? '[' . $addresses[0] . ']' : $addresses[0])];
 		}
 
-		// Download, stopping when the response is larger than a certificate can be
+		// Download, stopping when the response is larger than max_size
 		$body = '';
 		$too_large = false;
 		$ch = curl_init($url);
@@ -1015,8 +1129,8 @@ class identity {
 			CURLOPT_TIMEOUT => $this->certificate_timeout,
 			CURLOPT_SSL_VERIFYPEER => true,
 			CURLOPT_SSL_VERIFYHOST => 2,
-			CURLOPT_WRITEFUNCTION => function ($ch, $data) use (&$body, &$too_large) {
-				if (strlen($body) + strlen($data) > self::MAX_CERTIFICATE_SIZE) {
+			CURLOPT_WRITEFUNCTION => function ($ch, $data) use (&$body, &$too_large, $max_size) {
+				if (strlen($body) + strlen($data) > $max_size) {
 					$too_large = true;
 					return 0;
 				}
@@ -1029,23 +1143,17 @@ class identity {
 		$curl_error = curl_error($ch);
 		curl_close($ch);
 		if ($blocked) {
-			$this->error_message = "Certificate URL must use a public address: " . $url;
+			$this->error_message = ucfirst($what) . " URL must use a public address: " . $url;
 			return false;
 		}
 		if ($too_large) {
-			$this->error_message = "Certificate download is larger than " . self::MAX_CERTIFICATE_SIZE . " bytes: " . $url;
+			$this->error_message = ucfirst($what) . " download is larger than " . $max_size . " bytes: " . $url;
 			return false;
 		}
 		if ($result === false || $status !== 200 || $body === '') {
-			$this->error_message = "Failed to download certificate from: " . $url . ($curl_error !== '' ? " (" . $curl_error . ")" : ($status ? " (HTTP " . $status . ")" : ""));
+			$this->error_message = "Failed to download " . $what . " from: " . $url . ($curl_error !== '' ? " (" . $curl_error . ")" : ($status ? " (HTTP " . $status . ")" : ""));
 			return false;
 		}
-
-		// Cache only a readable certificate
-		if ($apcu && @openssl_x509_read($body) !== false) {
-			apcu_store($cache_key, $body, self::CERTIFICATE_CACHE_TTL);
-		}
-		while (openssl_error_string()) {}
 
 		return $body;
 	}

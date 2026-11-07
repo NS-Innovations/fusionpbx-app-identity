@@ -53,6 +53,7 @@ class identity_settings {
 		'debug' => ['uuid' => 'da8e8b9a-9e89-4f96-aa4c-820fdc1e7f36', 'type' => 'boolean', 'default' => 'false', 'config' => 'identity.debug'],
 		'database_retention_days' => ['uuid' => 'de87d56a-3e51-44e6-a074-7c6ed836fc81', 'type' => 'numeric', 'default' => '90', 'config' => 'identity.database_retention_days'],
 		'trust_list' => ['uuid' => 'fc775706-f3e0-49ba-92c0-4161ec7150bc', 'type' => 'text', 'default' => '', 'config' => 'identity.trust_list'],
+		'crl_url' => ['uuid' => '78f40f36-5899-447f-9f2b-f58f1d4f35e3', 'type' => 'text', 'default' => 'https://authenticate-api.iconectiv.com/download/v1/crl', 'config' => 'identity.crl_url'],
 		'brands_file' => ['uuid' => '8dcda27b-415e-4f4b-a425-533d78c67c71', 'type' => 'text', 'default' => '', 'config' => 'identity.brands_file'],
 		'bcid_private_key_name' => ['uuid' => '9c5845a3-78ec-4b48-a19e-a38fd399a7f1', 'type' => 'text', 'default' => 'bcid_private.key', 'config' => 'identity.bcid.private_key_name'],
 		'bcid_certificate_name' => ['uuid' => '6405b1c6-2150-4d57-be5a-39832e812812', 'type' => 'text', 'default' => 'bcid_certificate.pem', 'config' => 'identity.bcid.certificate_name'],
@@ -144,6 +145,7 @@ class identity_settings {
 					break;
 				case 'certificate_url':
 				case 'bcid_certificate_url':
+				case 'crl_url':
 					$valid = $value === '' || self::is_url($value);
 					break;
 				case 'allowed_cidr':

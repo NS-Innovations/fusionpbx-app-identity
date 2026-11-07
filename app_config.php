@@ -109,6 +109,14 @@
 		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
 		$apps[$x]['default_settings'][$y]['default_setting_description'] = "PEM file of the STI-CA root certificates approved by the STI-PA. Inbound calls are reported as No-TN-Validation while it is empty.";
 		$y++;
+		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = "78f40f36-5899-447f-9f2b-f58f1d4f35e3";
+		$apps[$x]['default_settings'][$y]['default_setting_category'] = "identity";
+		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "crl_url";
+		$apps[$x]['default_settings'][$y]['default_setting_name'] = "text";
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = "https://authenticate-api.iconectiv.com/download/v1/crl";
+		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
+		$apps[$x]['default_settings'][$y]['default_setting_description'] = "URL of the STI-PA certificate revocation list that inbound calls are checked against. Revocation is not checked when empty.";
+		$y++;
 		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = "8dcda27b-415e-4f4b-a425-533d78c67c71";
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = "identity";
 		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "brands_file";

@@ -90,6 +90,12 @@ $text['label-setting_trust_list']['en-gb'] = "Trust List";
 $text['description-setting_trust_list']['en-us'] = "PEM file of the STI-CA root certificates approved by the STI-PA. Inbound calls pass verification only when the certificate of the call chains to one of them. While it is empty, inbound calls with a valid signature are reported as No-TN-Validation.";
 $text['description-setting_trust_list']['en-gb'] = "PEM file of the STI-CA root certificates approved by the STI-PA. Inbound calls pass verification only when the certificate of the call chains to one of them. While it is empty, inbound calls with a valid signature are reported as No-TN-Validation.";
 
+$text['label-setting_crl_url']['en-us'] = "CRL URL";
+$text['label-setting_crl_url']['en-gb'] = "CRL URL";
+
+$text['description-setting_crl_url']['en-us'] = "URL of the certificate revocation list (CRL) of the STI-PA. The certificate of an inbound call, and any intermediate certificate served with it, must not be in it. Its signer must chain to the trust list, so add the STI-PA root certificate to the trust list. Revocation is not checked when empty.";
+$text['description-setting_crl_url']['en-gb'] = "URL of the certificate revocation list (CRL) of the STI-PA. The certificate of an inbound call, and any intermediate certificate served with it, must not be in it. Its signer must chain to the trust list, so add the STI-PA root certificate to the trust list. Revocation is not checked when empty.";
+
 $text['label-setting_brands_file']['en-us'] = "Brands File";
 $text['label-setting_brands_file']['en-gb'] = "Brands File";
 
@@ -252,6 +258,15 @@ $text['label-numbers']['en-gb'] = "numbers";
 $text['label-certificates']['en-us'] = "certificates";
 $text['label-certificates']['en-gb'] = "certificates";
 
+$text['label-crl_updated']['en-us'] = "CRL of";
+$text['label-crl_updated']['en-gb'] = "CRL of";
+
+$text['label-crl_next']['en-us'] = "next update";
+$text['label-crl_next']['en-gb'] = "next update";
+
+$text['label-crl_revoked']['en-us'] = "revoked certificates";
+$text['label-crl_revoked']['en-gb'] = "revoked certificates";
+
 $text['label-certificate_url']['en-us'] = "Certificate URL";
 $text['label-certificate_url']['en-gb'] = "Certificate URL";
 
@@ -344,6 +359,9 @@ $text['label-check_bcid_certificate_url']['en-gb'] = "BCID Certificate URL";
 
 $text['label-check_trust_list']['en-us'] = "Trust List";
 $text['label-check_trust_list']['en-gb'] = "Trust List";
+
+$text['label-check_crl']['en-us'] = "Revocation";
+$text['label-check_crl']['en-gb'] = "Revocation";
 
 $text['option-sign']['en-us'] = "Sign";
 $text['option-sign']['en-gb'] = "Sign";
@@ -440,6 +458,12 @@ $text['message-trust_list_invalid']['en-gb'] = "The trust list contains no certi
 
 $text['message-trust_list_expired']['en-us'] = "Expired certificates in the trust list, download the current list from the STI-PA:";
 $text['message-trust_list_expired']['en-gb'] = "Expired certificates in the trust list, download the current list from the STI-PA:";
+
+$text['message-crl_off']['en-us'] = "Revocation is not checked, so a revoked certificate passes until it expires. Set the CRL URL in Settings below.";
+$text['message-crl_off']['en-gb'] = "Revocation is not checked, so a revoked certificate passes until it expires. Set the CRL URL in Settings below.";
+
+$text['message-crl_failed']['en-us'] = "The CRL cannot be used, so inbound calls with a valid signature are reported as No-TN-Validation:";
+$text['message-crl_failed']['en-gb'] = "The CRL cannot be used, so inbound calls with a valid signature are reported as No-TN-Validation:";
 
 $text['message-cidr_invalid']['en-us'] = "Invalid CIDR, use the address/mask format such as 127.0.0.1/32:";
 $text['message-cidr_invalid']['en-gb'] = "Invalid CIDR, use the address/mask format such as 127.0.0.1/32:";

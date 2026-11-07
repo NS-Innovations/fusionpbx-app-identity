@@ -18,6 +18,8 @@ $setting_array['private_key_path'] = $identity_settings['private_key_path'];
 $setting_array['certificate_path'] = $identity_settings['certificate_path'];
 $setting_array['certificate_url'] = $identity_settings['certificate_url'];
 $setting_array['trust_list'] = $identity_settings['trust_list'];
+$setting_array['crl_url'] = $identity_settings['crl_url'];
+$setting_array['cache_path'] = (string)$settings->get('cache', 'location', '/var/cache/fusionpbx');
 $setting_array['debug'] = $debug;
 
 // Get the identity header
