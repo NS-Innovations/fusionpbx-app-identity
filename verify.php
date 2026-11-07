@@ -17,12 +17,15 @@ $allowed_cidr = $identity_settings['allowed_cidr'];
 $setting_array['private_key_path'] = $identity_settings['private_key_path'];
 $setting_array['certificate_path'] = $identity_settings['certificate_path'];
 $setting_array['certificate_url'] = $identity_settings['certificate_url'];
+$setting_array['trust_list'] = $identity_settings['trust_list'];
 $setting_array['debug'] = $debug;
 
 // Get the identity header
 if (is_cli()) {
 	$identity_header = $argv[1] ?? '';
 	$format = $argv[2] ?? '';
+	$source_number = $argv[3] ?? '';
+	$destination_number = $argv[4] ?? '';
 	$call_uuid = '';
 	$domain_uuid = '';
 }
@@ -44,6 +47,8 @@ else {
 	};
 	$identity_header = $request_value('identity');
 	$format = $request_value('format');
+	$source_number = $request_value('source');
+	$destination_number = $request_value('destination');
 	$call_uuid = $request_value('call_uuid');
 	$domain_uuid = $request_value('domain_uuid');
 }
@@ -57,28 +62,31 @@ if (empty($identity_header)) {
 // Initialize the identity object
 $identity = new identity($setting_array);
 
-// Verify the identity header
-$result = $identity->verify($identity_header);
+// Verify the identity header against the numbers of the call. Without them the header cannot be fully checked
+// and the result is No-TN-Validation.
+$result = $identity->verify(
+	$identity_header,
+	'',
+	$source_number !== '' ? $source_number : null,
+	$destination_number !== '' ? $destination_number : null
+);
 
-// JSON output includes Rich Call Data (name, logo, call reason) for display
+// JSON output includes the status and, only when every check passed, the Rich Call Data (name, logo, call reason)
 if ($format === 'json') {
 	echo json_encode([
 		'verified' => $result,
+		'verstat' => $identity->verstat,
 		'attest' => $identity->attest_level,
 		'rcd' => (object)$identity->rcd,
 		'crn' => $identity->crn,
 		'error' => ($result || !$debug) ? '' : $identity->error_message,
 	], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 }
-elseif ($result === true) {
-	echo 'TN-Validation-Passed-' . $identity->attest_level;
-} else {
-	if ($debug) {
-		echo "PASSporT verification error " . $identity->error_message;
-	}
-	else {
-		echo 'TN-Validation-Failed';
-	}
+elseif (!$result && $debug) {
+	echo "PASSporT verification error " . $identity->error_message;
+}
+else {
+	echo $identity->verstat;
 }
 
 // Send the response to FreeSWITCH before writing the log

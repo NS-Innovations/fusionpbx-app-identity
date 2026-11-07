@@ -71,8 +71,9 @@ Open **Advanced > Identity** and click **Setup**. Everything except the outbound
 and needs the `identity_setup_all` permission, which superadmin has. Work down the page:
 
 1. **Checks:** the table at the top shows what is missing or wrong. Fix the errors first.
-2. **Settings:** set the certificate URL. Adjust the certificate directory, file names or allowed CIDR if needed, then
-   click **Save**.
+2. **Settings:** set the certificate URL, and the trust list to verify inbound calls (see
+   [Inbound Verification](#inbound-verification)). Adjust the certificate directory, file names or allowed CIDR if
+   needed, then click **Save**.
 3. **Certificate:** import the private key and certificate from your STI-CA. To try things out first, click
    **Generate Test Certificate** instead.
 4. **Certificate URL:** copy the certificate to the web server behind the certificate URL. The checks report a
@@ -139,6 +140,8 @@ The checks table shows ok, warning or error, with details, for:
 - debug mode
 - outbound routes
 - inbound verification
+- the trust list, when inbound verification is on or **Trust List** is set: present and readable, with the number of
+  certificates, and a warning when some have expired
 - the brands file, when **Brands File** is set: present and readable, with the number of brands and numbers, and a
   warning when enabled brands use the `bcid` profile but **BCID Certificate URL** is not set
 - the BCID private key, certificate, key pair and certificate URL, when **BCID Certificate URL** is set, with the same
@@ -163,6 +166,7 @@ checked first; an invalid value is listed with a **Back** button that returns to
 | Attestation Check | true | Sign with B instead of A when the calling number is not a destination of the domain (see [Attestation](#attestation)) |
 | Debug | false | Return error text instead of the normal response |
 | Log Retention (days) | 90 | Days to keep the identity logs; 0 keeps them forever (see [Logs](#logs)) |
+| Trust List | *(none)* | PEM file of the STI-CA root certificates approved by the STI-PA. Inbound calls are reported as `No-TN-Validation` while it is empty (see [Inbound Verification](#inbound-verification)) |
 | Brands File | *(none)* | Brands file for branded calling. Branding is off when empty |
 | BCID Private Key File | `bcid_private.key` | File name of the BCID private key in the certificate directory |
 | BCID Certificate File | `bcid_certificate.pem` | File name of the BCID certificate in the certificate directory |
@@ -235,8 +239,11 @@ Enter a calling number, a called number and an attestation level, then click **T
 
 - the `Identity` header, or the signing error
 - the result of verifying it with the local certificate
-- the result of verifying it by downloading the certificate URL with the same restrictions as inbound verification,
-  so an http, redirecting or private URL fails here the way it fails at a receiver running this app
+- the result of verifying it the way inbound calls are verified: the certificate URL is downloaded with the same
+  restrictions, the certificate is checked against the trust list, and the numbers are checked. An http, redirecting
+  or private URL, or a certificate that does not chain to the trust list, fails here the way it fails at a receiver
+  running this app. A test certificate never chains to the trust list, so it shows `TN-Validation-Failed`, and without
+  a trust list the result is `No-TN-Validation`
 
 Nothing is logged.
 
@@ -302,20 +309,39 @@ in the dialplan editor and **Remove** deletes it.
 
 ```
 <condition field="${sip_identity}" expression="^.+$">
-	<action application="curl" data="http://127.0.0.1/app/identity/verify.php POST identity=${url_encode(${sip_identity})}&call_uuid=${uuid}"/>
+	<action application="curl" data="http://127.0.0.1/app/identity/verify.php POST identity=${url_encode(${sip_identity})}&call_uuid=${uuid}&source=${url_encode(${caller_id_number})}&destination=${url_encode(${destination_number})}"/>
 	<action application="set" data="identity_verstat=${curl_response_data}"/>
 </condition>
 ```
+
+The upgrade adds `source` and `destination` to verification dialplans added by earlier versions or by hand, and URL
+encodes the `identity`, `source` and `destination` values that are not encoded yet.
 
 `identity_verstat` is set to one of:
 
 | Value | Meaning |
 |---|---|
-| `TN-Validation-Passed-A`, `-B`, `-C` | The signature is valid, with that attestation |
-| `TN-Validation-Failed` | The header is malformed or too old, the certificate could not be downloaded, or the signature is invalid |
-| `No-TN-Validation` | verify.php was called without a header |
+| `TN-Validation-Passed-A`, `-B`, `-C` | Every check below passed, with that attestation |
+| `TN-Validation-Failed` | A check failed: the header is malformed, too old or already used, its numbers are not those of the call, the certificate could not be downloaded, is not a STIR/SHAKEN certificate or does not chain to the trust list, or the signature is invalid |
+| `No-TN-Validation` | The header could not be fully checked: there is no header, no usable trust list, or the dialplan did not send the call's numbers. Nothing in it was shown to be wrong, but it is not verified either |
 
-Use the variable in later dialplans, for example to tag or route unverified calls.
+Use the variable in later dialplans, for example to tag or route unverified calls. verify.php logs `No-TN-Validation`
+results as failed, with the reason in the message.
+
+A passed result means:
+
+- the PASSporT is well formed, its `attest` is A, B or C, and its `iat` is recent (see below)
+- its `orig` number is the caller ID number of the call and the called number of the call is one of its `dest`
+  numbers. Both sides are compared as digits, with a leading 1 added to 10 digit North American numbers, so
+  `2025550100`, `12025550100` and `+1 (202) 555-0100` match. A number that differs fails before anything is
+  downloaded and does not use the replay claim below, so a header copied onto another call cannot block the real one
+- the certificate at its `x5u` URL carries the TNAuthList extension that every STIR/SHAKEN certificate has, and
+  chains, through any intermediate certificates served with it, to a certificate in the trust list, with every
+  certificate in the chain within its validity dates. Only the trust list is trusted, not the system's web CA
+  certificates
+- the signature is valid for that certificate
+
+Rich Call Data (the JSON output below) is only returned when the result is a pass.
 
 A PASSporT whose `iat` is more than 60 seconds from the server clock, older or newer, fails before anything is
 downloaded, and so does one whose `attest` is not A, B or C. Keep the server clock synchronized with NTP.
@@ -342,17 +368,25 @@ restricted:
 
 The PHP curl extension is required.
 
+#### Trust List
+
+Service providers registered with the STI-PA download the list of approved STI-CA certificates from the STI-PA. Save
+their root certificates, one after the other in PEM format, in a file the web server user can read, for example
+`/etc/fusionpbx/certs/sti_ca_list.pem`, and set **Trust List** in Setup > Settings. The Trust List check counts the
+certificates and warns about expired ones. The STI-PA updates the list when STI-CAs are added or removed, so download
+it again regularly. Add the root certificates of any other signers you accept, such as those of BCID certificates, to
+the same file.
+
 #### Limitations
 
-A passed result means the header is recent, intact, and signed by the certificate at its `x5u` URL. It does not mean
-the signer is authorized. verify.php does not yet:
+verify.php does not yet:
 
-- validate the certificate chain against the STI-PA trust list or check certificate revocation
-- check that `orig` and `dest` match the call
-- check the logo digest (`rcdi`)
-
-Anyone can sign a PASSporT with any number or display name and it will verify. Do not show verified Rich Call Data
-to users, or treat `TN-Validation-Passed` as proof of identity, until these checks exist.
+- check certificate revocation (the CRL published by the STI-PA), so a revoked certificate still passes until it
+  expires
+- check the logo digest (`rcdi`), so a logo returned in the JSON output was signed as a URL but its content was not
+  compared with the digest
+- check that the TNAuthList of the certificate covers the calling number, which ATIS does not require for service
+  provider certificates
 
 ## Branded Calling (Rich Call Data)
 
@@ -484,14 +518,25 @@ php /var/www/fusionpbx/app/identity/sign.php <source> <destination> [attest_leve
 
 ### verify.php
 
-FreeSWITCH calls verify.php from the inbound verification dialplan with the `identity` parameter. It returns one of the
-`identity_verstat` values above. With `format=json` it returns the attestation and any Rich Call Data:
+FreeSWITCH calls verify.php from the inbound verification dialplan.
+
+| Parameter | Required | Description |
+|---|---|---|
+| `identity` | yes | The `Identity` header |
+| `source` | yes | Caller ID number of the call, compared with `orig` |
+| `destination` | yes | Called number of the call, compared with `dest` |
+| `call_uuid` | no | Logged with the result and used to link to the call detail record |
+| `format` | no | `json` for the JSON output below |
+
+It returns one of the `identity_verstat` values above, or `No-TN-Validation` when `source` or `destination` is
+missing. With `format=json` it returns the status, the attestation, and the Rich Call Data when the result is a pass:
 
 ```
-{"verified":true,"attest":"A","rcd":{"nam":"Acme Dental","icn":"https://cdn.example.com/acme.bmp"},"crn":"Billing question","error":""}
+{"verified":true,"verstat":"TN-Validation-Passed-A","attest":"A","rcd":{"nam":"Acme Dental","icn":"https://cdn.example.com/acme.bmp"},"crn":"Billing question","error":""}
 ```
 
-From the command line: `php verify.php '<identity header>' [json]`.
+From the command line: `php verify.php '<identity header>' [text|json] [calling number] [called number]`. Without the
+numbers the result is `No-TN-Validation`.
 
 ### Permissions
 

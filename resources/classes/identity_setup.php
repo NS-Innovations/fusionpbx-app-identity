@@ -56,6 +56,15 @@ class identity_setup {
 	const encoded_parameters = ['source', 'destination', 'call_reason'];
 
 	/**
+	 * Parameters of the verification request that give verify.php the calling and called numbers of the call, which
+	 * the PASSporT must match. Without them verify.php returns No-TN-Validation.
+	 */
+	const verify_parameters = [
+		'source' => '${url_encode(${caller_id_number})}',
+		'destination' => '${url_encode(${destination_number})}',
+	];
+
+	/**
 	 * Set in the constructor. Must be a database object and cannot be null.
 	 *
 	 * @var database Database Object
@@ -699,6 +708,98 @@ class identity_setup {
 	}
 
 	/**
+	 * Add the call's numbers to the data of a verification action that does not send them, and URL encode the caller
+	 * controlled values.
+	 *
+	 * The identity, source and destination values are wrapped in ${url_encode(...)} unless they already are, so the
+	 * Identity header or the caller ID cannot add parameters to the request, and a missing source or destination is
+	 * added.
+	 *
+	 * @param string $data Data of the curl action, "<url> POST <parameters>"
+	 *
+	 * @return string The data with every parameter of verify_parameters, encoded
+	 */
+	public static function add_verify_parameters(string $data): string {
+		$position = strpos($data, ' POST ');
+		if ($position === false) {
+			return $data;
+		}
+		$parameters = explode('&', substr($data, $position + 6));
+		$names = [];
+		foreach ($parameters as $i => $parameter) {
+			[$name, $value] = array_pad(explode('=', $parameter, 2), 2, null);
+			$names[] = $name;
+			if ($value === null || $value === '' || !in_array($name, ['identity', 'source', 'destination'], true) || strpos($value, '${url_encode(') === 0) {
+				continue;
+			}
+			$parameters[$i] = $name.'=${url_encode('.$value.')}';
+		}
+		foreach (self::verify_parameters as $name => $value) {
+			if (!in_array($name, $names, true)) {
+				$parameters[] = $name.'='.$value;
+			}
+		}
+		return substr($data, 0, $position + 6).implode('&', $parameters);
+	}
+
+	/**
+	 * Add the call's numbers to the verification actions added by earlier versions or by hand, and URL encode them.
+	 *
+	 * Earlier versions did not send them, so verify.php could not check that a PASSporT was signed for the call, and
+	 * returns No-TN-Validation without them. Runs on upgrade and rebuilds the XML of each dialplan changed.
+	 *
+	 * @return int Number of dialplans updated
+	 */
+	public function upgrade_verification(): int {
+		//find the verification actions
+		$sql = "select d.dialplan_detail_uuid, d.dialplan_uuid, d.dialplan_detail_data, p.dialplan_context ";
+		$sql .= "from v_dialplan_details as d ";
+		$sql .= "inner join v_dialplans as p on p.dialplan_uuid = d.dialplan_uuid ";
+		$sql .= "where d.dialplan_detail_tag = 'action' ";
+		$sql .= "and d.dialplan_detail_type = 'curl' ";
+		$sql .= "and d.dialplan_detail_data like :verify_url ";
+		$parameters['verify_url'] = '%/app/identity/verify.php%';
+		$rows = $this->database->select($sql, $parameters, 'all');
+		unset($sql, $parameters);
+		if (!is_array($rows)) {
+			return 0;
+		}
+
+		//add the parameters
+		$x = 0;
+		$array = [];
+		$dialplans = [];
+		foreach ($rows as $row) {
+			$data = self::add_verify_parameters($row['dialplan_detail_data']);
+			if ($data === $row['dialplan_detail_data']) {
+				continue;
+			}
+			$array['dialplan_details'][$x]['dialplan_detail_uuid'] = $row['dialplan_detail_uuid'];
+			$array['dialplan_details'][$x]['dialplan_uuid'] = $row['dialplan_uuid'];
+			$array['dialplan_details'][$x]['dialplan_detail_data'] = $data;
+			$dialplans[$row['dialplan_uuid']] = $row['dialplan_context'];
+			$x++;
+		}
+		if (empty($array)) {
+			return 0;
+		}
+
+		//save the actions
+		$p = permissions::new();
+		$p->add('dialplan_detail_edit', 'temp');
+		$this->database->save($array, false);
+		unset($array);
+		$p->delete('dialplan_detail_edit', 'temp');
+
+		//rebuild the dialplan xml and clear the cache
+		foreach ($dialplans as $dialplan_uuid => $dialplan_context) {
+			$this->update_dialplan($dialplan_uuid, $dialplan_context);
+		}
+
+		return count($dialplans);
+	}
+
+	/**
 	 * Get the inbound verification dialplan.
 	 *
 	 * @return array Array with keys: dialplan_uuid, dialplan_enabled, or an empty array if it does not exist
@@ -739,7 +840,7 @@ class identity_setup {
 		$array['dialplans'][0]['dialplan_description'] = 'Verify the STIR/SHAKEN Identity header of inbound calls.';
 		$details = [
 			['condition', '${sip_identity}', '^.+$'],
-			['action', 'curl', self::local_url.'/verify.php POST identity=${url_encode(${sip_identity})}&call_uuid=${uuid}'],
+			['action', 'curl', self::add_verify_parameters(self::local_url.'/verify.php POST identity=${url_encode(${sip_identity})}&call_uuid=${uuid}')],
 			['action', 'set', 'identity_verstat=${curl_response_data}'],
 		];
 		foreach ($details as $y => $detail) {

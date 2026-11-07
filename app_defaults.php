@@ -46,4 +46,14 @@
 		unset($identity_setup, $updated);
 	}
 
+//send the calling and called numbers to verify.php in the verification dialplans added by earlier versions, once rather than for every domain
+	if ($domains_processed == 1) {
+		$identity_setup = new identity_setup(['database' => $database, 'domain_uuid' => '']);
+		$updated = $identity_setup->upgrade_verification();
+		if ($updated > 0) {
+			echo "[ Identity ] Added the calling and called numbers to the verification action of ".$updated." dialplan(s).\n";
+		}
+		unset($identity_setup, $updated);
+	}
+
 ?>

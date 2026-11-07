@@ -84,6 +84,12 @@ $text['label-setting_database_retention_days']['en-gb'] = "Log Retention (days)"
 $text['description-setting_database_retention_days']['en-us'] = "Days to keep the identity logs. Older entries are deleted automatically, at most once an hour, by sign.php and verify.php. 0 keeps them forever.";
 $text['description-setting_database_retention_days']['en-gb'] = "Days to keep the identity logs. Older entries are deleted automatically, at most once an hour, by sign.php and verify.php. 0 keeps them forever.";
 
+$text['label-setting_trust_list']['en-us'] = "Trust List";
+$text['label-setting_trust_list']['en-gb'] = "Trust List";
+
+$text['description-setting_trust_list']['en-us'] = "PEM file of the STI-CA root certificates approved by the STI-PA. Inbound calls pass verification only when the certificate of the call chains to one of them. While it is empty, inbound calls with a valid signature are reported as No-TN-Validation.";
+$text['description-setting_trust_list']['en-gb'] = "PEM file of the STI-CA root certificates approved by the STI-PA. Inbound calls pass verification only when the certificate of the call chains to one of them. While it is empty, inbound calls with a valid signature are reported as No-TN-Validation.";
+
 $text['label-setting_brands_file']['en-us'] = "Brands File";
 $text['label-setting_brands_file']['en-gb'] = "Brands File";
 
@@ -243,6 +249,9 @@ $text['label-brands']['en-gb'] = "brands";
 $text['label-numbers']['en-us'] = "numbers";
 $text['label-numbers']['en-gb'] = "numbers";
 
+$text['label-certificates']['en-us'] = "certificates";
+$text['label-certificates']['en-gb'] = "certificates";
+
 $text['label-certificate_url']['en-us'] = "Certificate URL";
 $text['label-certificate_url']['en-gb'] = "Certificate URL";
 
@@ -333,6 +342,9 @@ $text['label-check_bcid_key_pair']['en-gb'] = "BCID Key Pair";
 $text['label-check_bcid_certificate_url']['en-us'] = "BCID Certificate URL";
 $text['label-check_bcid_certificate_url']['en-gb'] = "BCID Certificate URL";
 
+$text['label-check_trust_list']['en-us'] = "Trust List";
+$text['label-check_trust_list']['en-gb'] = "Trust List";
+
 $text['option-sign']['en-us'] = "Sign";
 $text['option-sign']['en-gb'] = "Sign";
 
@@ -416,6 +428,18 @@ $text['message-brands_file_invalid']['en-gb'] = "The brands file cannot be used,
 
 $text['message-bcid_off']['en-us'] = "Set the BCID Certificate URL in Settings below. Until then, calls from enabled brands with the bcid profile are signed without branding. Brands:";
 $text['message-bcid_off']['en-gb'] = "Set the BCID Certificate URL in Settings below. Until then, calls from enabled brands with the bcid profile are signed without branding. Brands:";
+
+$text['message-trust_list_missing']['en-us'] = "Set the trust list in Settings below. Until then, inbound calls with a valid signature are reported as No-TN-Validation, because the signer cannot be checked.";
+$text['message-trust_list_missing']['en-gb'] = "Set the trust list in Settings below. Until then, inbound calls with a valid signature are reported as No-TN-Validation, because the signer cannot be checked.";
+
+$text['message-trust_list_unreadable']['en-us'] = "The trust list does not exist or cannot be read, so inbound calls with a valid signature are reported as No-TN-Validation:";
+$text['message-trust_list_unreadable']['en-gb'] = "The trust list does not exist or cannot be read, so inbound calls with a valid signature are reported as No-TN-Validation:";
+
+$text['message-trust_list_invalid']['en-us'] = "The trust list contains no certificates, so every inbound call fails verification:";
+$text['message-trust_list_invalid']['en-gb'] = "The trust list contains no certificates, so every inbound call fails verification:";
+
+$text['message-trust_list_expired']['en-us'] = "Expired certificates in the trust list, download the current list from the STI-PA:";
+$text['message-trust_list_expired']['en-gb'] = "Expired certificates in the trust list, download the current list from the STI-PA:";
 
 $text['message-cidr_invalid']['en-us'] = "Invalid CIDR, use the address/mask format such as 127.0.0.1/32:";
 $text['message-cidr_invalid']['en-gb'] = "Invalid CIDR, use the address/mask format such as 127.0.0.1/32:";

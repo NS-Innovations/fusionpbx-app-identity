@@ -101,6 +101,14 @@
 		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
 		$apps[$x]['default_settings'][$y]['default_setting_description'] = "Days to keep the identity logs. 0 keeps them forever.";
 		$y++;
+		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = "fc775706-f3e0-49ba-92c0-4161ec7150bc";
+		$apps[$x]['default_settings'][$y]['default_setting_category'] = "identity";
+		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "trust_list";
+		$apps[$x]['default_settings'][$y]['default_setting_name'] = "text";
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = "";
+		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
+		$apps[$x]['default_settings'][$y]['default_setting_description'] = "PEM file of the STI-CA root certificates approved by the STI-PA. Inbound calls are reported as No-TN-Validation while it is empty.";
+		$y++;
 		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = "8dcda27b-415e-4f4b-a425-533d78c67c71";
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = "identity";
 		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "brands_file";

@@ -157,10 +157,11 @@
 						$test['local'] = $identity->verify($test['header'], $status['certificate']['pem']);
 						$test['local_message'] = $test['local'] ? $text['label-attest'].' '.$identity->attest_level : $identity->error_message;
 
-						//verify the same way a carrier would, by downloading the certificate URL with the same restrictions
+						//verify the same way inbound calls are verified: download the certificate URL with the same restrictions,
+						//check it against the trust list, and check the numbers
 						if (!empty($identity_settings['certificate_url'])) {
-							$test['remote'] = $identity->verify($test['header']);
-							$test['remote_message'] = $test['remote'] ? $text['label-attest'].' '.$identity->attest_level : $identity->error_message;
+							$test['remote'] = $identity->verify($test['header'], '', $test['source'], $test['destination']);
+							$test['remote_message'] = $identity->verstat.($test['remote'] ? '' : ': '.$identity->error_message);
 						}
 					}
 					$_SESSION['identity']['test'] = $test;
@@ -396,6 +397,41 @@
 	}
 	else {
 		$checks[] = [$text['label-check_inbound'], $verify_dialplan['dialplan_enabled'] == 'true' ? 'ok' : 'warning', $text['label-'.$verify_dialplan['dialplan_enabled']]];
+	}
+
+	//trust list, without it inbound calls with a valid signature are reported as No-TN-Validation
+	if (empty($identity_settings['trust_list'])) {
+		if (!empty($verify_dialplan)) {
+			$checks[] = [$text['label-check_trust_list'], 'error', $text['message-trust_list_missing']];
+		}
+	}
+	else if (!is_file($identity_settings['trust_list']) || !is_readable($identity_settings['trust_list'])) {
+		$checks[] = [$text['label-check_trust_list'], 'error', $text['message-trust_list_unreadable'].' '.$identity_settings['trust_list']];
+	}
+	else {
+		$trust_total = 0;
+		$trust_expired = 0;
+		preg_match_all('/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/s', (string)file_get_contents($identity_settings['trust_list']), $matches);
+		foreach ($matches[0] as $block) {
+			$trust_certificate = @openssl_x509_read($block);
+			if ($trust_certificate !== false) {
+				$trust_total++;
+				if ((openssl_x509_parse($trust_certificate)['validTo_time_t'] ?? 0) < time()) {
+					$trust_expired++;
+				}
+			}
+		}
+		while (openssl_error_string()) {}
+		if ($trust_total == 0) {
+			$checks[] = [$text['label-check_trust_list'], 'error', $text['message-trust_list_invalid'].' '.$identity_settings['trust_list']];
+		}
+		else if ($trust_expired > 0) {
+			$checks[] = [$text['label-check_trust_list'], 'warning', $text['message-trust_list_expired'].' '.$trust_expired.' / '.$trust_total];
+		}
+		else {
+			$checks[] = [$text['label-check_trust_list'], 'ok', $trust_total.' '.$text['label-certificates']];
+		}
+		unset($trust_total, $trust_expired, $trust_certificate, $matches, $block);
 	}
 
 	//brands file, a missing or malformed file only shows in the php error log when calls are signed

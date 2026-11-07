@@ -92,6 +92,19 @@ class identity {
 	public $crn = '';
 
 	/**
+	 * Result of the last verify() call, the value returned to FreeSWITCH: TN-Validation-Passed-A, -B or -C,
+	 * TN-Validation-Failed when the header is bad, or No-TN-Validation when it could not be checked completely.
+	 *
+	 * @var string
+	 */
+	public $verstat = 'No-TN-Validation';
+
+	/**
+	 * OID of the TNAuthList extension that every STIR/SHAKEN certificate carries (RFC 8226, ATIS-1000080).
+	 */
+	const TN_AUTH_LIST_OID = '1.3.6.1.5.5.7.1.26';
+
+	/**
 	 * JSON encoding flags used for PASSporT header, payload and rcdi digests.
 	 * Slashes and unicode are left unescaped so URLs and display names are
 	 * serialized the way RFC 8225 / RFC 9795 examples show them.
@@ -125,6 +138,13 @@ class identity {
 	private $certificate_url = '';
 
 	/**
+	 * Path to the PEM file of the STI-CA root certificates that verified certificates must chain to.
+	 *
+	 * @var string
+	 */
+	private $trust_list = '';
+
+	/**
 	 * Default attestation level (A, B, or C) for new PASSporTs.
 	 *
 	 * @var string
@@ -154,6 +174,7 @@ class identity {
 		$this->private_key_path = $setting_array['private_key_path'] ?? '';
 		$this->certificate_path = $setting_array['certificate_path'] ?? '';
 		$this->certificate_url = $setting_array['certificate_url'] ?? '';
+		$this->trust_list = $setting_array['trust_list'] ?? '';
 	}
 
 	/**
@@ -259,18 +280,23 @@ class identity {
 	}
 
 	/**
-	 * Verify a PASSporT token signature and extract attestation level.
+	 * Verify a PASSporT and decide the verification status of the call.
 	 *
-	 * Validates the JWT format, downloads the public certificate from the header
-	 * URL, extracts the public key, and verifies the ECDSA signature. Sets
-	 * error_message and attest_level properties on success or failure.
+	 * The header must be well formed, recent (iat) and not already used (replay, with APCu), its calling and called
+	 * numbers must be those of the call, the certificate at its x5u URL must carry TNAuthList and chain to the trust
+	 * list, and the signature must be valid. Sets verstat to TN-Validation-Passed-<attest> when every check passes,
+	 * TN-Validation-Failed when one fails, and No-TN-Validation when the header is valid but could not be checked
+	 * completely: no usable trust list, or the call's numbers were not given. Rich Call Data is only kept on a pass.
 	 *
-	 * @param string $identity_header The signed PASSporT token (JWT format)
-	 * @param string $certificate_pem Optional certificate to verify against instead of downloading x5u
+	 * @param string      $identity_header The SIP Identity header, or the PASSporT alone
+	 * @param string      $certificate_pem Certificate to check the signature with instead of downloading x5u. The trust
+	 *                                     list and the numbers are not checked; used by Setup to test the local key
+	 * @param string|null $orig_tn         Calling number of the call, or null when it is not known
+	 * @param string|null $dest_tn         Called number of the call, or null when it is not known
 	 *
-	 * @return bool True if signature is valid, false otherwise
+	 * @return bool True only when every check passed
 	 */
-	public function verify($identity_header, string $certificate_pem = ''): bool {
+	public function verify($identity_header, string $certificate_pem = '', ?string $orig_tn = null, ?string $dest_tn = null): bool {
 
 		// Reset the results from any previous call
 		$this->attest_level = '';
@@ -278,6 +304,7 @@ class identity {
 		$this->rcd = [];
 		$this->rcdi = [];
 		$this->crn = '';
+		$this->verstat = 'TN-Validation-Failed';
 
 		// Split the token into its 3 parts
 		$parts = preg_split('/\./', $identity_header);
@@ -371,10 +398,18 @@ class identity {
 			return false;
 		}
 
+		// The PASSporT must be for this call: its calling and called numbers must be those of the call (ATIS-1000074).
+		// Checked before anything is downloaded and before the replay claim, so a header copied onto another call
+		// fails without blocking the call it was signed for.
+		$numbers_given = $orig_tn !== null && $dest_tn !== null;
+		if ($numbers_given && !$this->numbers_match($payload_json, $orig_tn, $dest_tn)) {
+			return false;
+		}
+
 		// Replay: refuse a PASSporT already presented within the freshness window (needs APCu, shared by the PHP-FPM
 		// workers). The key is the signed payload, which has a unique origid per call and cannot be re-encoded without
 		// breaking the signature, unlike the signature text. apcu_add() claims it atomically before the download, and
-		// the claim is released when verification fails so a forged copy cannot block the real call.
+		// the claim is released unless verification passes so a forged copy cannot block the real call.
 		$replay_key = 'identity_replay_' . hash('sha256', $payload);
 		$replay_cache = empty($certificate_pem) && function_exists('apcu_enabled') && apcu_enabled();
 		if ($replay_cache && !apcu_add($replay_key, 1, 2 * self::MAX_PASSPORT_AGE)) {
@@ -382,27 +417,172 @@ class identity {
 			return false;
 		}
 
-		// Check the signature
-		$verified = $this->check_signature($header_b64, $payload_b64, $signature, $header_certificate_url, $certificate_pem, $payload_json);
-		if ($replay_cache && !$verified) {
+		// Check the signature, then that the certificate belongs to an authorized signer
+		$certificate_string = '';
+		$passed = $this->check_signature($header_b64, $payload_b64, $signature, $header_certificate_url, $certificate_pem, $certificate_string);
+		if ($passed && empty($certificate_pem)) {
+			$passed = $this->check_authorization($certificate_string, $numbers_given);
+		}
+
+		// Keep the claims only when every check passed
+		if ($passed) {
+			$this->attest_level = $payload_json['attest'];
+			if (isset($payload_json['rcd']) && is_array($payload_json['rcd'])) {
+				$this->rcd = $payload_json['rcd'];
+			}
+			if (isset($payload_json['rcdi']) && is_array($payload_json['rcdi'])) {
+				$this->rcdi = $payload_json['rcdi'];
+			}
+			if (isset($payload_json['crn']) && is_string($payload_json['crn'])) {
+				$this->crn = $payload_json['crn'];
+			}
+			$this->verstat = 'TN-Validation-Passed-' . $this->attest_level;
+			$this->error_message = "";
+		}
+		elseif ($replay_cache) {
 			apcu_delete($replay_key);
 		}
-		return $verified;
+		return $passed;
 	}
 
 	/**
-	 * Check the signature of a decoded PASSporT and save its claims when it is valid.
+	 * Check that the numbers of a PASSporT are those of the call.
+	 *
+	 * Both sides are normalized with normalize_tn(), so 2025550100, 12025550100 and +12025550100 are the same number.
+	 * The calling number must equal orig.tn and the called number must be one of dest.tn.
+	 *
+	 * @param array  $payload Decoded PASSporT payload
+	 * @param string $orig_tn Calling number of the call
+	 * @param string $dest_tn Called number of the call
+	 *
+	 * @return bool True if both match, otherwise false with error_message set
+	 */
+	private function numbers_match(array $payload, string $orig_tn, string $dest_tn): bool {
+		$signed_orig = is_string($payload['orig']['tn'] ?? null) ? $this->normalize_tn($payload['orig']['tn']) : '';
+		$call_orig = $this->normalize_tn($orig_tn);
+		if ($signed_orig === '' || $signed_orig !== $call_orig) {
+			$this->error_message = "The calling number " . $call_orig . " is not the signed number " . $signed_orig;
+			return false;
+		}
+		$call_dest = $this->normalize_tn($dest_tn);
+		$signed_dests = [];
+		foreach (is_array($payload['dest']['tn'] ?? null) ? $payload['dest']['tn'] : [] as $tn) {
+			if (is_string($tn)) {
+				$signed_dests[] = $this->normalize_tn($tn);
+			}
+		}
+		if ($call_dest === '' || !in_array($call_dest, $signed_dests, true)) {
+			$this->error_message = "The called number " . $call_dest . " is not a signed number " . implode(',', $signed_dests);
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Check that a validly signed PASSporT comes from an authorized signer and was checked against the call.
+	 *
+	 * A certificate that is not a STIR/SHAKEN certificate or does not chain to the trust list fails
+	 * (TN-Validation-Failed). Without a usable trust list, or without the numbers of the call, the PASSporT cannot be
+	 * fully checked and the result is No-TN-Validation rather than a pass or a failure.
+	 *
+	 * @param string $certificate_string Certificate downloaded from x5u, with any intermediate certificates
+	 * @param bool   $numbers_given      Whether the numbers of the call were checked
+	 *
+	 * @return bool True if the signer is authorized and the numbers were checked
+	 */
+	private function check_authorization(string $certificate_string, bool $numbers_given): bool {
+		if ($this->trust_list === '' || !is_file($this->trust_list) || !is_readable($this->trust_list)) {
+			$this->verstat = 'No-TN-Validation';
+			$this->error_message = $this->trust_list === '' ? "No trust list is set, the signer was not checked" : "The trust list " . $this->trust_list . " cannot be read, the signer was not checked";
+			return false;
+		}
+		if (!$this->check_certificate_chain($certificate_string)) {
+			return false;
+		}
+		if (!$numbers_given) {
+			$this->verstat = 'No-TN-Validation';
+			$this->error_message = "The calling and called numbers of the call were not given, they were not checked";
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Check that a certificate is a STIR/SHAKEN certificate that chains to the trust list.
+	 *
+	 * The first certificate is the signer's, any others are intermediates and are only used to build the chain. Only
+	 * the trust list is trusted: openssl_x509_checkpurpose() adds the system certificate directory (the web PKI roots)
+	 * unless a directory is given, so an empty temporary directory is passed with the trust list. The dates of every
+	 * certificate in the chain are checked. Revocation is not.
+	 *
+	 * @param string $certificate_string PEM certificate, optionally followed by intermediate certificates
+	 *
+	 * @return bool True if the certificate chains to the trust list, otherwise false with error_message set
+	 */
+	private function check_certificate_chain(string $certificate_string): bool {
+		preg_match_all('/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/s', $certificate_string, $matches);
+		$blocks = $matches[0];
+		$certificate = empty($blocks) ? false : @openssl_x509_read($blocks[0]);
+		if ($certificate === false) {
+			while (openssl_error_string()) {}
+			$this->error_message = "Failed to read certificate.";
+			return false;
+		}
+
+		// Every STIR/SHAKEN certificate carries TNAuthList, a certificate issued for anything else does not
+		$extensions = openssl_x509_parse($certificate)['extensions'] ?? [];
+		if (!isset($extensions[self::TN_AUTH_LIST_OID]) && !isset($extensions['tnAuthList']) && !isset($extensions['TNAuthList'])) {
+			$this->error_message = "The certificate is not a STIR/SHAKEN certificate (no TNAuthList extension)";
+			return false;
+		}
+
+		// Temporary files: an empty directory so only the trust list is trusted, and the intermediate certificates
+		$empty_directory = sys_get_temp_dir() . '/identity_trust_' . bin2hex(random_bytes(8));
+		if (!@mkdir($empty_directory, 0700)) {
+			$this->error_message = "Unable to create a temporary directory in " . sys_get_temp_dir();
+			return false;
+		}
+		$untrusted_file = null;
+		if (count($blocks) > 1) {
+			$untrusted_file = @tempnam(sys_get_temp_dir(), 'identity_chain_');
+			if ($untrusted_file === false || @file_put_contents($untrusted_file, implode("\n", array_slice($blocks, 1)) . "\n") === false) {
+				if ($untrusted_file !== false) {
+					@unlink($untrusted_file);
+				}
+				@rmdir($empty_directory);
+				$this->error_message = "Unable to write a temporary file in " . sys_get_temp_dir();
+				return false;
+			}
+		}
+
+		// Build and check the chain
+		$result = openssl_x509_checkpurpose($certificate, X509_PURPOSE_ANY, [$this->trust_list, $empty_directory], $untrusted_file);
+		while (openssl_error_string()) {}
+		if ($untrusted_file !== null) {
+			@unlink($untrusted_file);
+		}
+		@rmdir($empty_directory);
+
+		if ($result !== true) {
+			$this->error_message = "The certificate does not chain to the trust list, or a certificate in the chain is expired or not yet valid";
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Check the signature of a decoded PASSporT.
 	 *
 	 * @param string $header_b64             Header as sent, base64url encoded
 	 * @param string $payload_b64            Payload as sent, base64url encoded
 	 * @param string $signature              Signature as sent, base64url encoded
 	 * @param string $header_certificate_url Certificate URL (x5u) from the header
 	 * @param string $certificate_pem        Certificate to use instead of downloading the URL, or empty
-	 * @param array  $payload_json           Decoded payload
+	 * @param string $certificate_string     Set to the certificate that was used, with any chain that came with it
 	 *
 	 * @return bool True if the signature is valid
 	 */
-	private function check_signature(string $header_b64, string $payload_b64, string $signature, string $header_certificate_url, string $certificate_pem, array $payload_json): bool {
+	private function check_signature(string $header_b64, string $payload_b64, string $signature, string $header_certificate_url, string $certificate_pem, string &$certificate_string): bool {
 		// Use the provided certificate or download it from the header URL
 		if (!empty($certificate_pem)) {
 			$header_certificate_string = $certificate_pem;
@@ -414,15 +594,17 @@ class identity {
 				return false;
 			}
 		}
+		$certificate_string = $header_certificate_string;
 
 		// Verify signature - The JWT signature is computed over ASCII(base64url(header) || '.' || base64url(payload))
 		$this->error_message = "Verifying signature...";
 		$secret = $header_certificate_string;
 		$signing_input = $header_b64 . '.' . $payload_b64;
 
-		// Read certificate from secret (which is the certificate content)
-		$certificate = openssl_x509_read($secret);
+		// Read certificate from secret (which is the certificate content), it comes from the caller so no PHP warning
+		$certificate = @openssl_x509_read($secret);
 		if (!$certificate) {
+			while (openssl_error_string()) {}
 			$this->error_message = "Failed to read certificate.";
 			return false;
 		}
@@ -460,16 +642,6 @@ class identity {
 
 		// Return result
 		if ($result == 1) {
-			$this->attest_level = $payload_json['attest'];
-			if (isset($payload_json['rcd']) && is_array($payload_json['rcd'])) {
-				$this->rcd = $payload_json['rcd'];
-			}
-			if (isset($payload_json['rcdi']) && is_array($payload_json['rcdi'])) {
-				$this->rcdi = $payload_json['rcdi'];
-			}
-			if (isset($payload_json['crn']) && is_string($payload_json['crn'])) {
-				$this->crn = $payload_json['crn'];
-			}
 			$this->error_message = "";
 			return true;
 		}
