@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0 (Unreleased)
+## 1.0 (2026-11-07)
 
 The first release with a web interface. Earlier versions were `sign.php` and `verify.php` configured in
 `config.conf`.
