@@ -38,11 +38,14 @@ else {
 		return;
 	}
 
-	// Get the variables
-	$identity_header = $_REQUEST['identity'] ?? '';
-	$format = $_REQUEST['format'] ?? '';
-	$call_uuid = $_REQUEST['call_uuid'] ?? '';
-	$domain_uuid = $_REQUEST['domain_uuid'] ?? '';
+	// Get the variables, a value that is not a string (such as identity[]=) is treated as empty
+	$request_value = function (string $name): string {
+		return is_string($_REQUEST[$name] ?? null) ? $_REQUEST[$name] : '';
+	};
+	$identity_header = $request_value('identity');
+	$format = $request_value('format');
+	$call_uuid = $request_value('call_uuid');
+	$domain_uuid = $request_value('domain_uuid');
 }
 
 // Empty identity header

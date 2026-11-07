@@ -60,13 +60,16 @@ else {
 		return;
 	}
 
-	// Get the HTTP request values
-	$source_number = $_REQUEST['source'] ?? '';
-	$destination_number = $_REQUEST['destination'] ?? '';
-	$attest_level = $_REQUEST['attest_level'] ?? 'A';
-	$call_reason = $_REQUEST['call_reason'] ?? '';
-	$call_uuid = $_REQUEST['call_uuid'] ?? '';
-	$domain_uuid = $_REQUEST['domain_uuid'] ?? '';
+	// Get the HTTP request values, a value that is not a string (such as source[]=) is treated as empty
+	$request_value = function (string $name, string $default = ''): string {
+		return is_string($_REQUEST[$name] ?? null) ? $_REQUEST[$name] : $default;
+	};
+	$source_number = $request_value('source');
+	$destination_number = $request_value('destination');
+	$attest_level = $request_value('attest_level', 'A');
+	$call_reason = $request_value('call_reason');
+	$call_uuid = $request_value('call_uuid');
+	$domain_uuid = $request_value('domain_uuid');
 }
 
 // Initialize the identity object
