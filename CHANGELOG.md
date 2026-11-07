@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1 (2026-11-07)
+
+- **Setup:** the Certificate Directory check finds why the web server cannot use the directory (it is missing, it has
+  the wrong owner or mode, PHP-FPM's ProtectSystem makes it read-only, or PHP-FPM was not restarted after the
+  `ReadWritePaths` drop-in was added) and shows the command that fixes it, with the server's directory, web server
+  user and PHP-FPM service filled in.
+
 ## 1.0 (2026-11-07)
 
 The first release with a web interface. Earlier versions were `sign.php` and `verify.php` configured in
