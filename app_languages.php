@@ -237,6 +237,12 @@ $text['label-brand']['en-gb'] = "Brand";
 $text['label-branded']['en-us'] = "Branded";
 $text['label-branded']['en-gb'] = "Branded";
 
+$text['label-brands']['en-us'] = "brands";
+$text['label-brands']['en-gb'] = "brands";
+
+$text['label-numbers']['en-us'] = "numbers";
+$text['label-numbers']['en-gb'] = "numbers";
+
 $text['label-certificate_url']['en-us'] = "Certificate URL";
 $text['label-certificate_url']['en-gb'] = "Certificate URL";
 
@@ -312,6 +318,21 @@ $text['label-check_verify_local']['en-gb'] = "Local Certificate";
 $text['label-check_verify_remote']['en-us'] = "Certificate URL";
 $text['label-check_verify_remote']['en-gb'] = "Certificate URL";
 
+$text['label-check_brands_file']['en-us'] = "Brands File";
+$text['label-check_brands_file']['en-gb'] = "Brands File";
+
+$text['label-check_bcid_private_key']['en-us'] = "BCID Private Key";
+$text['label-check_bcid_private_key']['en-gb'] = "BCID Private Key";
+
+$text['label-check_bcid_certificate']['en-us'] = "BCID Certificate";
+$text['label-check_bcid_certificate']['en-gb'] = "BCID Certificate";
+
+$text['label-check_bcid_key_pair']['en-us'] = "BCID Key Pair";
+$text['label-check_bcid_key_pair']['en-gb'] = "BCID Key Pair";
+
+$text['label-check_bcid_certificate_url']['en-us'] = "BCID Certificate URL";
+$text['label-check_bcid_certificate_url']['en-gb'] = "BCID Certificate URL";
+
 $text['option-sign']['en-us'] = "Sign";
 $text['option-sign']['en-gb'] = "Sign";
 
@@ -386,6 +407,15 @@ $text['message-url_not_certificate']['en-gb'] = "The certificate URL does not re
 
 $text['message-url_mismatch']['en-us'] = "The certificate URL returns a different certificate than the local one:";
 $text['message-url_mismatch']['en-gb'] = "The certificate URL returns a different certificate than the local one:";
+
+$text['message-brands_file_missing']['en-us'] = "The brands file does not exist, so no calls are branded:";
+$text['message-brands_file_missing']['en-gb'] = "The brands file does not exist, so no calls are branded:";
+
+$text['message-brands_file_invalid']['en-us'] = "The brands file cannot be used, so every call is signed without branding:";
+$text['message-brands_file_invalid']['en-gb'] = "The brands file cannot be used, so every call is signed without branding:";
+
+$text['message-bcid_off']['en-us'] = "Set the BCID Certificate URL in Settings below. Until then, calls from enabled brands with the bcid profile are signed without branding. Brands:";
+$text['message-bcid_off']['en-gb'] = "Set the BCID Certificate URL in Settings below. Until then, calls from enabled brands with the bcid profile are signed without branding. Brands:";
 
 $text['message-cidr_invalid']['en-us'] = "Invalid CIDR, use the address/mask format such as 127.0.0.1/32:";
 $text['message-cidr_invalid']['en-gb'] = "Invalid CIDR, use the address/mask format such as 127.0.0.1/32:";

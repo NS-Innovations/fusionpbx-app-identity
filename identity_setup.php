@@ -234,27 +234,87 @@
 	$key = $status['private_key'];
 	$certificate = $status['certificate'];
 
-//compare the certificate URL with the local certificate, downloaded with the restrictions receivers use and without the cache
-	$url_fingerprint = '';
-	$url_error = '';
-	$url_scheme = strtolower(parse_url($identity_settings['certificate_url'], PHP_URL_SCHEME) ?? '');
-	if (!empty($identity_settings['certificate_url']) && $url_scheme == 'https') {
-		$url_pem = $identity->fetch_certificate($identity_settings['certificate_url'], false);
-		if ($url_pem === false) {
-			$url_error = $text['message-url_unreachable'].' '.$identity->error_message;
+//check a private key, its certificate and its certificate url, each check is: label, status (ok, warning, error), details
+//the certificate url is downloaded with the restrictions receivers use and without the cache, and compared with the local certificate
+	$certificate_checks = function (array $status, string $certificate_url, array $labels) use ($identity, $text): array {
+		$checks = [];
+		$key = $status['private_key'];
+		$certificate = $status['certificate'];
+
+		//private key
+		if (!$key['exists']) {
+			$checks[] = [$labels['private_key'], 'error', $text['message-file_missing'].' '.$key['path']];
+		}
+		else if (!$key['readable']) {
+			$checks[] = [$labels['private_key'], 'error', $text['message-file_unreadable'].' '.$key['path']];
+		}
+		else if ($key['curve'] != 'prime256v1') {
+			$checks[] = [$labels['private_key'], 'error', $text['message-key_curve'].' '.($key['curve'] ?: $text['label-none'])];
+		}
+		else if ((octdec($key['mode']) & 0007) != 0) {
+			$checks[] = [$labels['private_key'], 'warning', $text['message-key_mode'].' '.$key['mode']];
 		}
 		else {
-			$url_certificate = @openssl_x509_read($url_pem);
-			if ($url_certificate === false) {
-				$url_error = $text['message-url_not_certificate'].' '.$identity_settings['certificate_url'];
+			$checks[] = [$labels['private_key'], 'ok', $key['path'].' ('.$key['curve'].', '.$key['mode'].')'];
+		}
+
+		//certificate
+		if (!$certificate['exists']) {
+			$checks[] = [$labels['certificate'], 'error', $text['message-file_missing'].' '.$certificate['path']];
+		}
+		else if (!$certificate['readable']) {
+			$checks[] = [$labels['certificate'], 'error', $text['message-certificate_unreadable'].' '.$certificate['path']];
+		}
+		else {
+			$days = (int)floor(($certificate['valid_to'] - time()) / 86400);
+			$details = $certificate['subject'].' - '.$text['label-expires'].' '.date('Y-m-d', $certificate['valid_to']).' ('.$days.' '.$text['label-days'].')';
+			if ($certificate['valid_to'] < time()) {
+				$checks[] = [$labels['certificate'], 'error', $text['message-certificate_expired'].' '.$details];
+			}
+			else if ($certificate['self_signed']) {
+				$checks[] = [$labels['certificate'], 'warning', $text['message-certificate_self_signed'].' '.$details];
+			}
+			else if ($days < 30) {
+				$checks[] = [$labels['certificate'], 'warning', $text['message-certificate_expiring'].' '.$details];
 			}
 			else {
-				$url_fingerprint = openssl_x509_fingerprint($url_certificate, 'sha256');
+				$checks[] = [$labels['certificate'], 'ok', $details];
 			}
 		}
-		while (openssl_error_string()) {}
-	}
-	$local_fingerprint = $certificate['readable'] ? openssl_x509_fingerprint($certificate['pem'], 'sha256') : '';
+
+		//key pair
+		if ($key['readable'] && $certificate['readable']) {
+			$checks[] = [$labels['key_pair'], $status['key_matches_certificate'] ? 'ok' : 'error', $status['key_matches_certificate'] ? '' : $text['message-key_mismatch']];
+		}
+
+		//certificate url
+		$url_scheme = strtolower(parse_url($certificate_url, PHP_URL_SCHEME) ?? '');
+		if (empty($certificate_url)) {
+			$checks[] = [$labels['certificate_url'], 'error', $text['message-url_missing']];
+		}
+		else if ($url_scheme != 'https') {
+			$checks[] = [$labels['certificate_url'], 'error', $text['message-url_scheme'].' '.$certificate_url];
+		}
+		else {
+			$url_pem = $identity->fetch_certificate($certificate_url, false);
+			$url_certificate = $url_pem === false ? false : @openssl_x509_read($url_pem);
+			while (openssl_error_string()) {}
+			if ($url_pem === false) {
+				$checks[] = [$labels['certificate_url'], 'error', $text['message-url_unreachable'].' '.$identity->error_message];
+			}
+			else if ($url_certificate === false) {
+				$checks[] = [$labels['certificate_url'], 'error', $text['message-url_not_certificate'].' '.$certificate_url];
+			}
+			else if ($certificate['readable'] && openssl_x509_fingerprint($url_certificate, 'sha256') != openssl_x509_fingerprint($certificate['pem'], 'sha256')) {
+				$checks[] = [$labels['certificate_url'], 'error', $text['message-url_mismatch'].' '.$certificate_url];
+			}
+			else {
+				$checks[] = [$labels['certificate_url'], 'ok', $certificate_url];
+			}
+		}
+
+		return $checks;
+	};
 
 //check the allowed cidr
 	$cidr_invalid = identity_settings::invalid_cidr($identity_settings['allowed_cidr']);
@@ -290,68 +350,13 @@
 		$checks[] = [$text['label-check_path'], 'ok', $identity_settings['path']];
 	}
 
-	//private key
-	if (!$key['exists']) {
-		$checks[] = [$text['label-check_private_key'], 'error', $text['message-file_missing'].' '.$key['path']];
-	}
-	else if (!$key['readable']) {
-		$checks[] = [$text['label-check_private_key'], 'error', $text['message-file_unreadable'].' '.$key['path']];
-	}
-	else if ($key['curve'] != 'prime256v1') {
-		$checks[] = [$text['label-check_private_key'], 'error', $text['message-key_curve'].' '.($key['curve'] ?: $text['label-none'])];
-	}
-	else if ((octdec($key['mode']) & 0007) != 0) {
-		$checks[] = [$text['label-check_private_key'], 'warning', $text['message-key_mode'].' '.$key['mode']];
-	}
-	else {
-		$checks[] = [$text['label-check_private_key'], 'ok', $key['path'].' ('.$key['curve'].', '.$key['mode'].')'];
-	}
-
-	//certificate
-	if (!$certificate['exists']) {
-		$checks[] = [$text['label-check_certificate'], 'error', $text['message-file_missing'].' '.$certificate['path']];
-	}
-	else if (!$certificate['readable']) {
-		$checks[] = [$text['label-check_certificate'], 'error', $text['message-certificate_unreadable'].' '.$certificate['path']];
-	}
-	else {
-		$days = (int)floor(($certificate['valid_to'] - time()) / 86400);
-		$details = $certificate['subject'].' - '.$text['label-expires'].' '.date('Y-m-d', $certificate['valid_to']).' ('.$days.' '.$text['label-days'].')';
-		if ($certificate['valid_to'] < time()) {
-			$checks[] = [$text['label-check_certificate'], 'error', $text['message-certificate_expired'].' '.$details];
-		}
-		else if ($certificate['self_signed']) {
-			$checks[] = [$text['label-check_certificate'], 'warning', $text['message-certificate_self_signed'].' '.$details];
-		}
-		else if ($days < 30) {
-			$checks[] = [$text['label-check_certificate'], 'warning', $text['message-certificate_expiring'].' '.$details];
-		}
-		else {
-			$checks[] = [$text['label-check_certificate'], 'ok', $details];
-		}
-	}
-
-	//key pair
-	if ($key['readable'] && $certificate['readable']) {
-		$checks[] = [$text['label-check_key_pair'], $status['key_matches_certificate'] ? 'ok' : 'error', $status['key_matches_certificate'] ? '' : $text['message-key_mismatch']];
-	}
-
-	//certificate url
-	if (empty($identity_settings['certificate_url'])) {
-		$checks[] = [$text['label-check_certificate_url'], 'error', $text['message-url_missing']];
-	}
-	else if ($url_scheme != 'https') {
-		$checks[] = [$text['label-check_certificate_url'], 'error', $text['message-url_scheme'].' '.$identity_settings['certificate_url']];
-	}
-	else if (!empty($url_error)) {
-		$checks[] = [$text['label-check_certificate_url'], 'error', $url_error];
-	}
-	else if (!empty($local_fingerprint) && $url_fingerprint != $local_fingerprint) {
-		$checks[] = [$text['label-check_certificate_url'], 'error', $text['message-url_mismatch'].' '.$identity_settings['certificate_url']];
-	}
-	else {
-		$checks[] = [$text['label-check_certificate_url'], 'ok', $identity_settings['certificate_url']];
-	}
+	//private key, certificate, key pair and certificate url
+	$checks = array_merge($checks, $certificate_checks($status, $identity_settings['certificate_url'], [
+		'private_key' => $text['label-check_private_key'],
+		'certificate' => $text['label-check_certificate'],
+		'key_pair' => $text['label-check_key_pair'],
+		'certificate_url' => $text['label-check_certificate_url'],
+	]));
 
 	//allowed cidr
 	if (!empty($cidr_invalid)) {
@@ -391,6 +396,46 @@
 	}
 	else {
 		$checks[] = [$text['label-check_inbound'], $verify_dialplan['dialplan_enabled'] == 'true' ? 'ok' : 'warning', $text['label-'.$verify_dialplan['dialplan_enabled']]];
+	}
+
+	//brands file, a missing or malformed file only shows in the php error log when calls are signed
+	$bcid_brands = 0;
+	if (!empty($identity_settings['brands_file'])) {
+		$brands = new identity_brands($identity_settings['brands_file']);
+		if (!file_exists($identity_settings['brands_file'])) {
+			$checks[] = [$text['label-check_brands_file'], 'warning', $text['message-brands_file_missing'].' '.$identity_settings['brands_file']];
+		}
+		else if (!$brands->load()) {
+			$checks[] = [$text['label-check_brands_file'], 'error', $text['message-brands_file_invalid'].' '.$brands->error_message];
+		}
+		else {
+			foreach ($brands->get_brands() as $brand) {
+				if (is_array($brand) && !empty($brand['enabled']) && ($brand['profile'] ?? 'bcid') === 'bcid') {
+					$bcid_brands++;
+				}
+			}
+			$checks[] = [$text['label-check_brands_file'], 'ok', count($brands->get_brands()).' '.$text['label-brands'].', '.count($brands->get_numbers()).' '.$text['label-numbers']];
+		}
+		unset($brands, $brand);
+	}
+
+	//bcid profile, its key and certificate are only used for branded calls, which are signed without branding when they fail
+	if (!empty($identity_settings['bcid_certificate_url'])) {
+		$bcid_identity = new identity([
+			'private_key_path' => $identity_settings['bcid_private_key_path'],
+			'certificate_path' => $identity_settings['bcid_certificate_path'],
+			'certificate_url' => $identity_settings['bcid_certificate_url'],
+		]);
+		$checks = array_merge($checks, $certificate_checks($bcid_identity->certificate_status(), $identity_settings['bcid_certificate_url'], [
+			'private_key' => $text['label-check_bcid_private_key'],
+			'certificate' => $text['label-check_bcid_certificate'],
+			'key_pair' => $text['label-check_bcid_key_pair'],
+			'certificate_url' => $text['label-check_bcid_certificate_url'],
+		]));
+		unset($bcid_identity);
+	}
+	else if ($bcid_brands > 0) {
+		$checks[] = [$text['label-check_bcid_certificate_url'], 'warning', $text['message-bcid_off'].' '.$bcid_brands];
 	}
 
 //create token

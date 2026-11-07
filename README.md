@@ -139,6 +139,12 @@ The checks table shows ok, warning or error, with details, for:
 - debug mode
 - outbound routes
 - inbound verification
+- the brands file, when **Brands File** is set: present and readable, with the number of brands and numbers, and a
+  warning when enabled brands use the `bcid` profile but **BCID Certificate URL** is not set
+- the BCID private key, certificate, key pair and certificate URL, when **BCID Certificate URL** is set, with the same
+  tests as the default ones. A branded call that cannot be signed with the BCID key is signed without branding, and a
+  BCID key that does not match its certificate makes branded calls fail verification, so these show problems that are
+  otherwise only in the PHP error log or at the carrier
 
 Click **Refresh** to run them again.
 
@@ -214,7 +220,8 @@ key, the certificate, or both.
 - **Limits:** each file can be at most 64 KB. The directory must be writable by the web server (see
   [Install](#install)).
 
-Import only covers the default certificate. Copy the BCID key and certificate to the certificate directory by hand.
+Import only covers the default certificate. Copy the BCID key and certificate to the certificate directory by hand;
+the BCID checks show whether they are present, match and are published at **BCID Certificate URL**.
 
 Import does not publish the certificate. Carriers download it from the certificate URL to verify your calls, so copy
 the certificate, including any chain, to a web server reachable from the internet over HTTPS. The URL must return
