@@ -334,8 +334,11 @@ for vetted brands:
 - a logo (`rcd.icn`, with its `rcdi` integrity digest)
 - a call reason (`crn`)
 
-Branding is only added to calls signed with A attestation, so a calling number lowered to B by the attestation check
-is not branded. Branded calls can use a separate certificate profile
+Branding is only added to calls signed with A attestation whose calling number is a destination of the call's
+domain, the same ownership test as the [attestation check](#attestation). The ownership test applies even when the
+attestation check is off, because the brands file is shared by every domain and a number's brand must not be
+available to a domain that does not own the number. It is not applied on the command line. Branded calls can use a
+separate certificate profile
 (for example a BCID certificate), while all other calls keep the default certificate.
 
 To turn it on, set **Brands File** in Setup > Settings. For the BCID profile, also set **BCID Certificate URL** and

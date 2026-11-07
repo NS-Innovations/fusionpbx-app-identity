@@ -80,16 +80,19 @@ $destination_number = $identity->normalize_tn($destination_number);
 // of the domain, or the domain is not known, sign with partial attestation (B) instead. Not applied on the command line.
 $attest_note = '';
 $attest_level = is_string($attest_level) ? strtoupper(trim($attest_level)) : '';
+$number_owned = null;
 if (!is_cli() && $identity_settings['attestation_check'] && $attest_level === 'A') {
 	$numbers = new identity_numbers(['database' => $database]);
-	if (!$numbers->owns($source_number, is_string($domain_uuid) ? $domain_uuid : '')) {
+	$number_owned = $numbers->owns($source_number, is_string($domain_uuid) ? $domain_uuid : '');
+	if (!$number_owned) {
 		$attest_level = 'B';
 		$attest_note = 'Attestation lowered from A to B: the calling number is not a destination of the domain';
 	}
 	unset($numbers);
 }
 
-// Look up a vetted brand for the calling number. Branding requires full (A) attestation.
+// Look up a vetted brand for the calling number. Branding requires full (A) attestation, and the domain must own
+// the calling number even when the attestation check is off, because the brands file is shared by every domain.
 // Any error, including a malformed brands file, signs the call without branding.
 $brand = null;
 $rich_call_data = [];
@@ -102,6 +105,17 @@ if (!empty($brands_file) && $attest_level === 'A') {
 		}
 		else {
 			error_log('identity: ' . $brands->error_message);
+		}
+		if ($brand !== null && !is_cli()) {
+			if ($number_owned === null) {
+				$numbers = new identity_numbers(['database' => $database]);
+				$number_owned = $numbers->owns($source_number, is_string($domain_uuid) ? $domain_uuid : '');
+				unset($numbers);
+			}
+			if (!$number_owned) {
+				error_log('identity: brand ' . $brand['brand_id'] . ' skipped for ' . $source_number . ': the calling number is not a destination of the domain');
+				$brand = null;
+			}
 		}
 		if ($brand !== null) {
 			$brand_profile = $brand['profile'] ?? 'bcid';
