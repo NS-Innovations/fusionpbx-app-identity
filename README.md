@@ -1,7 +1,8 @@
 # Identity (STIR/SHAKEN) for FusionPBX
 
 Signs outbound calls with a SIP `Identity` header and verifies the `Identity` header of inbound calls, as defined by
-STIR/SHAKEN (RFC 8224, 8225, 8588). It can also add branded calling (Rich Call Data) for vetted brands.
+STIR/SHAKEN (RFC 8224, 8225, 8588). It can also add branded calling (Rich Call Data) for vetted brands; branded
+calling is experimental (see [Branded Calling](#branded-calling-rich-call-data-experimental)).
 
 Everything is managed in the web interface under **Advanced > Identity**:
 
@@ -11,6 +12,20 @@ Everything is managed in the web interface under **Advanced > Identity**:
 
 The pages are for superadmin by default. The only command-line tool is `brand.php`, which manages branded calling
 brands.
+
+See [CHANGELOG.md](CHANGELOG.md) for the changes in each release.
+
+## Requirements
+
+- FusionPBX 5.6 (developed on 5.6.6)
+- PostgreSQL. The overview and Logs pages use PostgreSQL SQL (`filter`, `timezone()`, intervals), so MySQL and SQLite
+  are not supported, although `app_config.php` declares column types for them as FusionPBX apps do
+- PHP 8.1 or later with the openssl, curl and mbstring extensions. PHP 8.4 or later is recommended: it checks the
+  address of a certificate download after connecting (see [Inbound Verification](#inbound-verification))
+- APCu for PHP-FPM is recommended: without it the replay check is off and the certificate of each inbound call is
+  downloaded again instead of being cached
+- A STIR/SHAKEN certificate and private key from an STI-CA, and an https URL to publish the certificate at
+- To verify inbound calls, the STI-CA root certificates from the STI-PA (see [Trust List](#trust-list))
 
 ## Install
 
@@ -388,7 +403,12 @@ verify.php does not yet:
 - check that the TNAuthList of the certificate covers the calling number, which ATIS does not require for service
   provider certificates
 
-## Branded Calling (Rich Call Data)
+## Branded Calling (Rich Call Data, experimental)
+
+> **Experimental.** Branded calling is not part of the 1.0 feature set. It is off unless **Brands File** is set, and
+> with it off sign.php skips every branding step. It has not been used with a BCID platform: issuing the BCID certificate,
+> syncing vetted brands and sending signing reports are not implemented, and verify.php does not check the logo digest
+> (`rcdi`). Its settings, files and behaviour may change in a later release.
 
 The signer can add Rich Call Data ([RFC 9795](https://www.rfc-editor.org/rfc/rfc9795.html)) to the SHAKEN PASSporT
 for vetted brands:

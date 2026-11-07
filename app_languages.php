@@ -24,8 +24,8 @@ $text['header-settings']['en-gb'] = "Settings";
 $text['description-settings']['en-us'] = "These settings apply to the whole server and are used by sign.php and verify.php right away. They are stored in Default Settings under the Identity category.";
 $text['description-settings']['en-gb'] = "These settings apply to the whole server and are used by sign.php and verify.php right away. They are stored in Default Settings under the Identity category.";
 
-$text['header-settings_branded']['en-us'] = "Branded Calling";
-$text['header-settings_branded']['en-gb'] = "Branded Calling";
+$text['header-settings_branded']['en-us'] = "Branded Calling (Experimental)";
+$text['header-settings_branded']['en-gb'] = "Branded Calling (Experimental)";
 
 $text['label-setting_path']['en-us'] = "Certificate Directory";
 $text['label-setting_path']['en-gb'] = "Certificate Directory";
