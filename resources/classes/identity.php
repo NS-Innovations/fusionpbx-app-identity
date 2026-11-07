@@ -47,15 +47,17 @@ class identity {
 
 	/**
 	 * Address ranges a certificate URL may never connect to: private, loopback, link-local, shared (CGNAT), benchmark,
-	 * multicast, reserved and documentation ranges, and IPv6 transition ranges that can wrap any IPv4 address (6to4,
-	 * Teredo, NAT64). Checked in addition to FILTER_FLAG_GLOBAL_RANGE, which misses some of them.
+	 * multicast, reserved and documentation ranges, deprecated IPv6 site-local addresses, the reserved IPv6 ::/8 block
+	 * (which holds the IPv4-compatible and SIIT IPv4-translated forms), and IPv6 transition ranges that can wrap any IPv4
+	 * address (6to4, Teredo, NAT64). IPv4-mapped addresses are checked as IPv4 before these ranges. Checked in addition
+	 * to FILTER_FLAG_GLOBAL_RANGE, which misses some of them.
 	 */
 	const BLOCKED_RANGES = [
 		'0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24',
 		'192.0.2.0/24', '192.88.99.0/24', '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24',
 		'224.0.0.0/4', '240.0.0.0/4',
-		'::/127', '64:ff9b::/96', '64:ff9b:1::/48', '100::/64', '2001::/23', '2001:db8::/32', '2002::/16', 'fc00::/7',
-		'fe80::/10', 'ff00::/8',
+		'::/8', '64:ff9b::/96', '64:ff9b:1::/48', '100::/64', '2001::/23', '2001:db8::/32', '2002::/16', 'fc00::/7',
+		'fe80::/10', 'fec0::/10', 'ff00::/8',
 	];
 
 	/**

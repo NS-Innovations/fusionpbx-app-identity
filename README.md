@@ -305,7 +305,8 @@ restricted:
 
 - https on port 443 only, with the server certificate verified
 - only public addresses: private, loopback, link-local, shared (CGNAT), benchmark, multicast, reserved and
-  documentation ranges are refused, and so are IPv6 ranges that can carry any IPv4 address (6to4, Teredo, NAT64)
+  documentation ranges are refused, and so are IPv6 site-local addresses, the reserved IPv6 `::/8` block, and the IPv6
+  ranges that can carry any IPv4 address (IPv4-compatible, SIIT IPv4-translated, 6to4, Teredo, NAT64)
 - the address is checked after curl connects and before any request is sent (PHP 8.4 and later), so DNS cannot
   change it; on older PHP the host is resolved and checked first and the connection pinned to that address
 - no redirects and no proxy
