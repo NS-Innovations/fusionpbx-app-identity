@@ -238,7 +238,7 @@
 	$url_fingerprint = '';
 	$url_error = '';
 	$url_scheme = strtolower(parse_url($identity_settings['certificate_url'], PHP_URL_SCHEME) ?? '');
-	if (!empty($identity_settings['certificate_url']) && in_array($url_scheme, ['http', 'https'], true)) {
+	if (!empty($identity_settings['certificate_url']) && $url_scheme == 'https') {
 		$url_pem = $identity->fetch_certificate($identity_settings['certificate_url'], false);
 		if ($url_pem === false) {
 			$url_error = $text['message-url_unreachable'].' '.$identity->error_message;
@@ -340,7 +340,7 @@
 	if (empty($identity_settings['certificate_url'])) {
 		$checks[] = [$text['label-check_certificate_url'], 'error', $text['message-url_missing']];
 	}
-	else if (!in_array($url_scheme, ['http', 'https'], true)) {
+	else if ($url_scheme != 'https') {
 		$checks[] = [$text['label-check_certificate_url'], 'error', $text['message-url_scheme'].' '.$identity_settings['certificate_url']];
 	}
 	else if (!empty($url_error)) {
@@ -348,9 +348,6 @@
 	}
 	else if (!empty($local_fingerprint) && $url_fingerprint != $local_fingerprint) {
 		$checks[] = [$text['label-check_certificate_url'], 'error', $text['message-url_mismatch'].' '.$identity_settings['certificate_url']];
-	}
-	else if ($url_scheme != 'https') {
-		$checks[] = [$text['label-check_certificate_url'], 'warning', $text['message-url_http'].' '.$identity_settings['certificate_url']];
 	}
 	else {
 		$checks[] = [$text['label-check_certificate_url'], 'ok', $identity_settings['certificate_url']];

@@ -113,7 +113,7 @@ The checks table shows ok, warning or error, with details, for:
 - the private key: present, readable, P-256, and permissions
 - the certificate: present, readable, expired, self-signed, or within 30 days of expiry
 - that the key matches the certificate
-- the certificate URL: set, reachable, and serving the same certificate
+- the certificate URL: set, https, reachable, and serving the same certificate
 - the allowed CIDR
 - the attestation check (a warning when it is off)
 - debug mode
@@ -132,7 +132,7 @@ checked first; an invalid value is listed with a **Back** button that returns to
 | Certificate Directory | `/etc/fusionpbx/certs` | Directory of the private keys and certificates (absolute path) |
 | Private Key File | `identity_private.key` | File name of the private key in the certificate directory |
 | Certificate File | `identity_certificate.pem` | File name of the certificate in the certificate directory |
-| Certificate URL | *(none, required)* | Public http or https URL of the certificate, sent as `x5u` in every signature |
+| Certificate URL | *(none, required)* | Public https URL of the certificate, sent as `x5u` in every signature |
 | Allowed CIDR | `127.0.0.1/32` | Comma separated IPv4 ranges that can use sign.php and verify.php |
 | Attestation Check | true | Sign with B instead of A when the calling number is not a destination of the domain (see [Attestation](#attestation)) |
 | Debug | false | Return error text instead of the normal response |
@@ -140,7 +140,7 @@ checked first; an invalid value is listed with a **Back** button that returns to
 | Brands File | *(none)* | Brands file for branded calling. Branding is off when empty |
 | BCID Private Key File | `bcid_private.key` | File name of the BCID private key in the certificate directory |
 | BCID Certificate File | `bcid_certificate.pem` | File name of the BCID certificate in the certificate directory |
-| BCID Certificate URL | *(none)* | Public URL of the BCID certificate. The BCID profile is off when empty |
+| BCID Certificate URL | *(none)* | Public https URL of the BCID certificate. The BCID profile is off when empty |
 | BCID Report Log | *(none)* | File that BCID signing events are written to |
 
 **Allowed CIDR** is the only access control on sign.php and verify.php, which FreeSWITCH calls without a web session.

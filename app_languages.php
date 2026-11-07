@@ -48,8 +48,8 @@ $text['description-setting_certificate_name']['en-gb'] = "File name of the certi
 $text['label-setting_certificate_url']['en-us'] = "Certificate URL";
 $text['label-setting_certificate_url']['en-gb'] = "Certificate URL";
 
-$text['description-setting_certificate_url']['en-us'] = "Public http or https URL of the certificate. It is sent in every signature, and receivers download the certificate from it.";
-$text['description-setting_certificate_url']['en-gb'] = "Public http or https URL of the certificate. It is sent in every signature, and receivers download the certificate from it.";
+$text['description-setting_certificate_url']['en-us'] = "Public https URL of the certificate. It is sent in every signature, and receivers download the certificate from it.";
+$text['description-setting_certificate_url']['en-gb'] = "Public https URL of the certificate. It is sent in every signature, and receivers download the certificate from it.";
 
 $text['label-setting_allowed_cidr']['en-us'] = "Allowed CIDR";
 $text['label-setting_allowed_cidr']['en-gb'] = "Allowed CIDR";
@@ -105,8 +105,8 @@ $text['description-setting_bcid_certificate_name']['en-gb'] = "File name of the 
 $text['label-setting_bcid_certificate_url']['en-us'] = "BCID Certificate URL";
 $text['label-setting_bcid_certificate_url']['en-gb'] = "BCID Certificate URL";
 
-$text['description-setting_bcid_certificate_url']['en-us'] = "Public URL of the BCID certificate. Brands with the bcid profile are only branded when it is set.";
-$text['description-setting_bcid_certificate_url']['en-gb'] = "Public URL of the BCID certificate. Brands with the bcid profile are only branded when it is set.";
+$text['description-setting_bcid_certificate_url']['en-us'] = "Public https URL of the BCID certificate. Brands with the bcid profile are only branded when it is set.";
+$text['description-setting_bcid_certificate_url']['en-gb'] = "Public https URL of the BCID certificate. Brands with the bcid profile are only branded when it is set.";
 
 $text['label-setting_bcid_report_log']['en-us'] = "BCID Report Log";
 $text['label-setting_bcid_report_log']['en-gb'] = "BCID Report Log";
@@ -377,9 +377,6 @@ $text['message-url_missing']['en-gb'] = "Set the certificate URL in Settings bel
 
 $text['message-url_scheme']['en-us'] = "The certificate URL must use https:";
 $text['message-url_scheme']['en-gb'] = "The certificate URL must use https:";
-
-$text['message-url_http']['en-us'] = "Carriers require https:";
-$text['message-url_http']['en-gb'] = "Carriers require https:";
 
 $text['message-url_unreachable']['en-us'] = "The certificate URL could not be downloaded:";
 $text['message-url_unreachable']['en-gb'] = "The certificate URL could not be downloaded:";

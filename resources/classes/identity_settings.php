@@ -340,7 +340,7 @@ class identity_settings {
 	}
 
 	/**
-	 * Check that a value is an http or https URL.
+	 * Check that a value is an https URL. Receivers, including verify.php, only download the certificate over https.
 	 *
 	 * @param string $url URL
 	 *
@@ -348,7 +348,7 @@ class identity_settings {
 	 */
 	public static function is_url(string $url): bool {
 		$scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
-		return filter_var($url, FILTER_VALIDATE_URL) !== false && in_array($scheme, ['http', 'https'], true);
+		return filter_var($url, FILTER_VALIDATE_URL) !== false && $scheme === 'https';
 	}
 
 	/**
