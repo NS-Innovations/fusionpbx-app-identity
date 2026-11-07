@@ -341,16 +341,28 @@
 		$checks[] = [$text['label-check_settings'], 'ok', ''];
 	}
 
-	//certificate directory
-	if (!is_dir($identity_settings['path'])) {
-		$checks[] = [$text['label-check_path'], 'error', $text['message-path_missing'].' '.$identity_settings['path']];
+	//certificate directory, with the commands that fix it
+	$directory = identity_setup::directory_problem($identity_settings['path']);
+	switch ($directory['problem']) {
+		case '':
+			$checks[] = [$text['label-check_path'], 'ok', $identity_settings['path']];
+			break;
+		case 'missing':
+			$checks[] = [$text['label-check_path'], 'error', $text['message-path_missing'].' '.$directory['command']];
+			break;
+		case 'owner':
+			$checks[] = [$text['label-check_path'], 'warning', $text['message-path_owner'].' '.$directory['command'].' ('.$text['label-path_owner'].' '.$directory['owner'].', '.$text['label-path_mode'].' '.$directory['mode'].', '.$text['label-path_web_user'].' '.$directory['user'].')'];
+			break;
+		case 'restart':
+			$checks[] = [$text['label-check_path'], 'warning', $text['message-path_restart'].' '.$directory['command']];
+			break;
+		case 'protected':
+			$checks[] = [$text['label-check_path'], 'warning', $text['message-path_protected'].' '.$directory['command']];
+			break;
+		default:
+			$checks[] = [$text['label-check_path'], 'warning', $text['message-path_read_only'].' '.$directory['command']];
 	}
-	else if (!is_writable($identity_settings['path'])) {
-		$checks[] = [$text['label-check_path'], 'warning', $text['message-path_read_only'].' '.$identity_settings['path']];
-	}
-	else {
-		$checks[] = [$text['label-check_path'], 'ok', $identity_settings['path']];
-	}
+	unset($directory);
 
 	//private key, certificate, key pair and certificate url
 	$checks = array_merge($checks, $certificate_checks($status, $identity_settings['certificate_url'], [

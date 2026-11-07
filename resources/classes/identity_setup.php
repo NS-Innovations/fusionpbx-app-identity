@@ -130,6 +130,81 @@ class identity_setup {
 	}
 
 	/**
+	 * Find out why the web server cannot use the certificate directory, and the commands that fix it.
+	 *
+	 * problem is empty when the web server can write to the directory, otherwise one of: missing (the directory does
+	 * not exist), owner (it is not owned by the web server user, or its mode does not let the owner write), restart (a
+	 * systemd drop-in lists it in ReadWritePaths but PHP-FPM was not restarted since), protected (it is owned and
+	 * writable but mounted read-only, as PHP-FPM's ProtectSystem does to /etc), or unknown (the cause cannot be found
+	 * without the posix extension). command is the shell command to run as root, with the path quoted.
+	 *
+	 * @param string $path Certificate directory
+	 *
+	 * @return array Array with keys: problem, command, user (web server user), owner (user:group of the directory),
+	 *               mode (octal permissions), service (PHP-FPM systemd service)
+	 */
+	public static function directory_problem(string $path): array {
+		//the web server user and group, and the php-fpm service this page runs in
+		$posix = function_exists('posix_geteuid') && function_exists('posix_getpwuid');
+		$user = $posix ? (posix_getpwuid(posix_geteuid())['name'] ?? 'www-data') : 'www-data';
+		$group = $posix ? (posix_getgrgid(posix_getegid())['name'] ?? $user) : $user;
+		$service = 'php'.PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION.'-fpm';
+		if (!file_exists('/lib/systemd/system/'.$service.'.service') && !file_exists('/usr/lib/systemd/system/'.$service.'.service') && !file_exists('/etc/systemd/system/'.$service.'.service')) {
+			$service = 'php-fpm';
+		}
+		$quoted = escapeshellarg($path);
+		$drop_in_directory = '/etc/systemd/system/'.$service.'.service.d';
+		$restart = 'systemctl daemon-reload && systemctl restart '.$service;
+		$drop_in = 'mkdir -p '.$drop_in_directory.' && printf '.escapeshellarg('[Service]\nReadWritePaths=%s\n').' '.$quoted.' > '.$drop_in_directory.'/identity.conf && '.$restart;
+		$ownership = 'chown '.$user.':'.$group.' '.$quoted.' && chmod 0750 '.$quoted;
+		$result = ['problem' => '', 'command' => '', 'user' => $user, 'owner' => '', 'mode' => '', 'service' => $service];
+
+		//missing or usable
+		if (!is_dir($path)) {
+			$result['problem'] = 'missing';
+			$result['command'] = 'install -d -o '.$user.' -g '.$group.' -m 0750 '.$quoted;
+			return $result;
+		}
+		if (is_writable($path)) {
+			return $result;
+		}
+
+		//not owned by the web server user, or the owner may not write
+		$result['mode'] = substr(sprintf('%o', fileperms($path)), -4);
+		if (!$posix) {
+			$result['problem'] = 'unknown';
+			$result['command'] = $ownership.' && '.$drop_in;
+			return $result;
+		}
+		$owner = fileowner($path);
+		$owner_group = filegroup($path);
+		$result['owner'] = (posix_getpwuid($owner)['name'] ?? $owner).':'.(posix_getgrgid($owner_group)['name'] ?? $owner_group);
+		if ($owner !== posix_geteuid() || (fileperms($path) & 0200) === 0) {
+			$result['problem'] = 'owner';
+			$result['command'] = $ownership;
+			return $result;
+		}
+
+		//owned and writable but read-only: a drop-in that php-fpm has not loaded yet, or none
+		foreach (glob($drop_in_directory.'/*.conf') ?: [] as $file) {
+			preg_match_all('/^\s*ReadWritePaths\s*=(.*)$/m', (string)@file_get_contents($file), $matches);
+			foreach ($matches[1] as $paths) {
+				foreach (preg_split('/\s+/', trim($paths)) as $allowed) {
+					$allowed = rtrim(ltrim($allowed, '-+'), '/');
+					if ($allowed !== '' && ($allowed === rtrim($path, '/') || strpos(rtrim($path, '/').'/', $allowed.'/') === 0)) {
+						$result['problem'] = 'restart';
+						$result['command'] = $restart;
+						return $result;
+					}
+				}
+			}
+		}
+		$result['problem'] = 'protected';
+		$result['command'] = $drop_in;
+		return $result;
+	}
+
+	/**
 	 * Import the private key and certificate issued by the STI-CA.
 	 *
 	 * Either file can be imported on its own. The key must be an EC P-256 (prime256v1) key; an encrypted key is

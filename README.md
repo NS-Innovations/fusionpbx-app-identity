@@ -61,6 +61,10 @@ systemctl restart php8.4-fpm
 `ReadWritePaths` adds to the paths the service already allows. Alternatively, copy the key and certificate into the
 directory by hand.
 
+The Certificate Directory check in Setup finds which of these is missing on the server (the directory, its owner or
+mode, the drop-in, or a PHP-FPM restart after adding it) and shows the command to run as root, with the server's
+directory, web server user and PHP-FPM service filled in.
+
 FreeSWITCH reaches sign.php and verify.php through the `127.0.0.1` server block of the FusionPBX nginx
 configuration. They are also served by the public server blocks, where the **Allowed CIDR** setting is their only
 protection. Anyone who can use sign.php gets calls signed with your certificate, so if a reverse proxy, tunnel or load

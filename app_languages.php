@@ -390,11 +390,29 @@ $text['option-period_month']['en-gb'] = "Last 30 Days";
 $text['message-run_upgrade']['en-us'] = "The v_identity_logs table does not exist. Run Advanced > Upgrade > Schema or php core/upgrade/upgrade.php.";
 $text['message-run_upgrade']['en-gb'] = "The v_identity_logs table does not exist. Run Advanced > Upgrade > Schema or php core/upgrade/upgrade.php.";
 
-$text['message-path_missing']['en-us'] = "Directory does not exist:";
-$text['message-path_missing']['en-gb'] = "Directory does not exist:";
+$text['message-path_missing']['en-us'] = "The certificate directory does not exist, and the web server cannot create it. Create it by running this as root, then click Refresh:";
+$text['message-path_missing']['en-gb'] = "The certificate directory does not exist, and the web server cannot create it. Create it by running this as root, then click Refresh:";
 
-$text['message-path_read_only']['en-us'] = "The web server cannot write to the directory, so Import and Generate Test Certificate will fail. If PHP-FPM runs with ProtectSystem, add the directory to ReadWritePaths:";
-$text['message-path_read_only']['en-gb'] = "The web server cannot write to the directory, so Import and Generate Test Certificate will fail. If PHP-FPM runs with ProtectSystem, add the directory to ReadWritePaths:";
+$text['message-path_read_only']['en-us'] = "The web server cannot write to the certificate directory, so Import and Generate Test Certificate fail. Make it owned by the web server user and, if PHP-FPM runs with ProtectSystem, allow it in ReadWritePaths, by running this as root (it restarts PHP-FPM), then click Refresh:";
+$text['message-path_read_only']['en-gb'] = "The web server cannot write to the certificate directory, so Import and Generate Test Certificate fail. Make it owned by the web server user and, if PHP-FPM runs with ProtectSystem, allow it in ReadWritePaths, by running this as root (it restarts PHP-FPM), then click Refresh:";
+
+$text['message-path_owner']['en-us'] = "The web server user cannot write to the certificate directory, so Import and Generate Test Certificate fail. Give it to the web server user by running this as root, then click Refresh:";
+$text['message-path_owner']['en-gb'] = "The web server user cannot write to the certificate directory, so Import and Generate Test Certificate fail. Give it to the web server user by running this as root, then click Refresh:";
+
+$text['message-path_protected']['en-us'] = "PHP-FPM runs with ProtectSystem, which makes the certificate directory read-only for the web server even though the web server user owns it, so Import and Generate Test Certificate fail. Allow it with a systemd drop-in by running this as root (it restarts PHP-FPM, which interrupts web requests for a moment), then click Refresh:";
+$text['message-path_protected']['en-gb'] = "PHP-FPM runs with ProtectSystem, which makes the certificate directory read-only for the web server even though the web server user owns it, so Import and Generate Test Certificate fail. Allow it with a systemd drop-in by running this as root (it restarts PHP-FPM, which interrupts web requests for a moment), then click Refresh:";
+
+$text['message-path_restart']['en-us'] = "A systemd drop-in allows PHP-FPM to write to the certificate directory, but PHP-FPM has not been restarted since it was added. Run this as root (it restarts PHP-FPM, which interrupts web requests for a moment), then click Refresh:";
+$text['message-path_restart']['en-gb'] = "A systemd drop-in allows PHP-FPM to write to the certificate directory, but PHP-FPM has not been restarted since it was added. Run this as root (it restarts PHP-FPM, which interrupts web requests for a moment), then click Refresh:";
+
+$text['label-path_owner']['en-us'] = "owner";
+$text['label-path_owner']['en-gb'] = "owner";
+
+$text['label-path_mode']['en-us'] = "mode";
+$text['label-path_mode']['en-gb'] = "mode";
+
+$text['label-path_web_user']['en-us'] = "web server user";
+$text['label-path_web_user']['en-gb'] = "web server user";
 
 $text['message-file_missing']['en-us'] = "File does not exist:";
 $text['message-file_missing']['en-gb'] = "File does not exist:";
