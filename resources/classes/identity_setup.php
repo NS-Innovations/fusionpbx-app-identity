@@ -56,6 +56,20 @@ class identity_setup {
 	const encoded_parameters = ['source', 'destination', 'call_reason'];
 
 	/**
+	 * Seconds the signing request waits for sign.php, which normally answers within milliseconds. Without a timeout a
+	 * stalled sign.php, for example on a slow database, would hold up call setup. The timeout is set with the
+	 * curl_timeout channel variable before the request and unset after it: the timeout option of the curl application
+	 * is not applied by FreeSWITCH 1.11.
+	 */
+	const sign_timeout = 3;
+
+	/**
+	 * Seconds the verification request waits for verify.php. It may download the certificate of the call (up to 2
+	 * seconds) and, once an hour, the CRL and its signer certificate (up to 2 seconds each).
+	 */
+	const verify_timeout = 6;
+
+	/**
 	 * Parameters of the verification request that give verify.php the calling and called numbers of the call, which
 	 * the PASSporT must match. Without them verify.php returns No-TN-Validation.
 	 */
@@ -513,8 +527,10 @@ class identity_setup {
 		//the actions to add
 		$data = 'source=${effective_caller_id_number}&destination='.$destination.'&attest_level='.$attest_level.'&domain_uuid=${domain_uuid}&call_uuid=${uuid}';
 		$actions = [
-			['unset', 'sip_h_Identity'],
+			['multiunset', 'sip_h_Identity curl_response_data'],
+			['set', 'curl_timeout='.self::sign_timeout],
 			['curl', self::encode_signing_data(self::local_url.'/sign.php POST '.$data)],
+			['unset', 'curl_timeout'],
 			['export', 'exclude_outgoing_extra_header=sip_h_Identity'],
 			['set', 'sip_h_Identity=${curl_response_data}'],
 		];
@@ -589,12 +605,16 @@ class identity_setup {
 		$sql .= "and dialplan_detail_tag = 'action' ";
 		$sql .= "and ( ";
 		$sql .= "	(dialplan_detail_type = 'unset' and dialplan_detail_data = 'sip_h_Identity') ";
+		$sql .= "	or (dialplan_detail_type = 'multiunset' and dialplan_detail_data = 'sip_h_Identity curl_response_data') ";
+		$sql .= "	or (dialplan_detail_type = 'set' and dialplan_detail_data = :timeout) ";
+		$sql .= "	or (dialplan_detail_type = 'unset' and dialplan_detail_data = 'curl_timeout') ";
 		$sql .= "	or (dialplan_detail_type = 'curl' and dialplan_detail_data like :sign_url) ";
 		$sql .= "	or (dialplan_detail_type = 'export' and dialplan_detail_data = 'exclude_outgoing_extra_header=sip_h_Identity') ";
 		$sql .= "	or (dialplan_detail_type = 'set' and dialplan_detail_data = 'sip_h_Identity=\${curl_response_data}') ";
 		$sql .= ") ";
 		$parameters['dialplan_uuid'] = $dialplan_uuid;
 		$parameters['sign_url'] = '%/app/identity/sign.php%';
+		$parameters['timeout'] = 'curl_timeout='.self::sign_timeout;
 		$rows = $this->database->select($sql, $parameters, 'all');
 		unset($sql, $parameters);
 		if (!is_array($rows) || @sizeof($rows) == 0) {
@@ -651,34 +671,50 @@ class identity_setup {
 	}
 
 	/**
-	 * URL encode the caller controlled values in the signing actions added by earlier versions or by hand.
+	 * Update the signing actions added by earlier versions or by hand.
 	 *
-	 * Earlier versions sent the caller ID and the dialed digits without encoding, so either could add parameters to
-	 * the sign.php request. Runs on upgrade for the routes of every domain and rebuilds the XML of each route changed.
+	 * URL encodes the caller controlled values, which earlier versions sent without encoding so either could add
+	 * parameters to the sign.php request, and adds the steps around the request (see prepare_curl()). Runs on upgrade
+	 * for the routes of every domain and rebuilds the XML of each route changed.
 	 *
 	 * @return int Number of routes updated
 	 */
 	public function upgrade_signing(): int {
-		//find the signing actions
+		return $this->upgrade_actions('%/app/identity/sign.php%', self::sign_timeout, function (string $data): string {
+			return self::encode_signing_data($data);
+		});
+	}
+
+	/**
+	 * Update the curl actions to sign.php or verify.php, and add the steps around each request.
+	 *
+	 * @param string   $url_pattern LIKE pattern of the curl data, such as %/app/identity/sign.php%
+	 * @param int      $timeout     Seconds the request may take
+	 * @param callable $update      Returns the new data of a curl action from its current data
+	 *
+	 * @return int Number of dialplans updated
+	 */
+	private function upgrade_actions(string $url_pattern, int $timeout, callable $update): int {
+		//find the actions
 		$sql = "select d.dialplan_detail_uuid, d.dialplan_uuid, d.dialplan_detail_data, p.dialplan_context ";
 		$sql .= "from v_dialplan_details as d ";
 		$sql .= "inner join v_dialplans as p on p.dialplan_uuid = d.dialplan_uuid ";
 		$sql .= "where d.dialplan_detail_tag = 'action' ";
 		$sql .= "and d.dialplan_detail_type = 'curl' ";
-		$sql .= "and d.dialplan_detail_data like :sign_url ";
-		$parameters['sign_url'] = '%/app/identity/sign.php%';
+		$sql .= "and d.dialplan_detail_data like :url ";
+		$parameters['url'] = $url_pattern;
 		$rows = $this->database->select($sql, $parameters, 'all');
 		unset($sql, $parameters);
 		if (!is_array($rows)) {
 			return 0;
 		}
 
-		//encode the values
+		//update the data
 		$x = 0;
 		$array = [];
 		$dialplans = [];
 		foreach ($rows as $row) {
-			$data = self::encode_signing_data($row['dialplan_detail_data']);
+			$data = $update($row['dialplan_detail_data']);
 			if ($data === $row['dialplan_detail_data']) {
 				continue;
 			}
@@ -688,16 +724,20 @@ class identity_setup {
 			$dialplans[$row['dialplan_uuid']] = $row['dialplan_context'];
 			$x++;
 		}
-		if (empty($array)) {
-			return 0;
+		if (!empty($array)) {
+			$p = permissions::new();
+			$p->add('dialplan_detail_edit', 'temp');
+			$this->database->save($array, false);
+			unset($array);
+			$p->delete('dialplan_detail_edit', 'temp');
 		}
 
-		//save the actions
-		$p = permissions::new();
-		$p->add('dialplan_detail_edit', 'temp');
-		$this->database->save($array, false);
-		unset($array);
-		$p->delete('dialplan_detail_edit', 'temp');
+		//add the steps around each request
+		foreach ($rows as $row) {
+			if ($this->prepare_curl($row['dialplan_uuid'], $row['dialplan_detail_uuid'], $timeout)) {
+				$dialplans[$row['dialplan_uuid']] = $row['dialplan_context'];
+			}
+		}
 
 		//rebuild the dialplan xml and clear the cache
 		foreach ($dialplans as $dialplan_uuid => $dialplan_context) {
@@ -705,6 +745,131 @@ class identity_setup {
 		}
 
 		return count($dialplans);
+	}
+
+	/**
+	 * Add the steps around a curl action to sign.php or verify.php that are missing.
+	 *
+	 * Before the request curl_response_data is cleared, because mod_curl does not change it when a request fails or
+	 * times out, so the next action would otherwise use the response of an earlier curl action on the same channel,
+	 * and could send it as the Identity header. An unset sip_h_Identity action just before the request is changed to
+	 * multiunset sip_h_Identity curl_response_data; otherwise unset curl_response_data is added. Then curl_timeout is
+	 * set before the request and unset after it, so the timeout does not apply to later requests of the call. The
+	 * actions of the group are renumbered when steps are added.
+	 *
+	 * @param string $dialplan_uuid    Dialplan UUID
+	 * @param string $curl_detail_uuid Dialplan detail UUID of the curl action
+	 * @param int    $timeout          Seconds the request may take
+	 *
+	 * @return bool True if the dialplan was changed
+	 */
+	private function prepare_curl(string $dialplan_uuid, string $curl_detail_uuid, int $timeout): bool {
+		//get the details of the dialplan
+		$sql = "select d.dialplan_detail_uuid, d.dialplan_detail_tag, d.dialplan_detail_type, d.dialplan_detail_data, ";
+		$sql .= "d.dialplan_detail_group, d.dialplan_detail_order, p.domain_uuid ";
+		$sql .= "from v_dialplan_details as d ";
+		$sql .= "inner join v_dialplans as p on p.dialplan_uuid = d.dialplan_uuid ";
+		$sql .= "where d.dialplan_uuid = :dialplan_uuid ";
+		$sql .= "order by d.dialplan_detail_group asc, d.dialplan_detail_order asc ";
+		$parameters['dialplan_uuid'] = $dialplan_uuid;
+		$details = $this->database->select($sql, $parameters, 'all');
+		unset($sql, $parameters);
+		if (!is_array($details)) {
+			return false;
+		}
+
+		//the actions of the group of the request, before and after it
+		$curl = null;
+		foreach ($details as $detail) {
+			if ($detail['dialplan_detail_uuid'] === $curl_detail_uuid) {
+				$curl = $detail;
+			}
+		}
+		if ($curl === null) {
+			return false;
+		}
+		$group = array_values(array_filter($details, function($detail) use ($curl) {
+			return $detail['dialplan_detail_group'] == $curl['dialplan_detail_group'];
+		}));
+		$position = array_search($curl_detail_uuid, array_column($group, 'dialplan_detail_uuid'), true);
+		$is_action = function($detail, $type, $pattern) {
+			return $detail['dialplan_detail_tag'] === 'action' && $detail['dialplan_detail_type'] === $type && preg_match($pattern, trim($detail['dialplan_detail_data']));
+		};
+		$cleared = false;
+		$timeout_set = false;
+		$last_action = null;
+		foreach (array_slice($group, 0, $position) as $detail) {
+			$cleared = $cleared || $is_action($detail, 'unset', '/^curl_response_data$/') || $is_action($detail, 'multiunset', '/(^|[\s:])curl_response_data($|[\s:])/');
+			$timeout_set = $timeout_set || $is_action($detail, 'set', '/^curl_timeout=/');
+			if ($detail['dialplan_detail_tag'] === 'action') {
+				$last_action = $detail;
+			}
+		}
+		$timeout_unset = false;
+		foreach (array_slice($group, $position + 1) as $detail) {
+			$timeout_unset = $timeout_unset || $is_action($detail, 'unset', '/^curl_timeout$/');
+		}
+		if ($cleared && $timeout_set && $timeout_unset) {
+			return false;
+		}
+
+		//change the unset sip_h_Identity action just before the request to also clear the response
+		$x = 0;
+		$array = [];
+		if (!$cleared && $last_action !== null && $is_action($last_action, 'unset', '/^sip_h_Identity$/')) {
+			$array['dialplan_details'][$x]['dialplan_detail_uuid'] = $last_action['dialplan_detail_uuid'];
+			$array['dialplan_details'][$x]['dialplan_uuid'] = $dialplan_uuid;
+			$array['dialplan_details'][$x]['dialplan_detail_type'] = 'multiunset';
+			$array['dialplan_details'][$x]['dialplan_detail_data'] = 'sip_h_Identity curl_response_data';
+			$x++;
+			$cleared = true;
+		}
+
+		//add the missing steps and renumber the group
+		$order = 0;
+		$add = function($type, $data) use (&$array, &$x, &$order, $curl, $dialplan_uuid) {
+			$order += 10;
+			$array['dialplan_details'][$x]['dialplan_detail_uuid'] = uuid();
+			$array['dialplan_details'][$x]['domain_uuid'] = $curl['domain_uuid'];
+			$array['dialplan_details'][$x]['dialplan_uuid'] = $dialplan_uuid;
+			$array['dialplan_details'][$x]['dialplan_detail_tag'] = 'action';
+			$array['dialplan_details'][$x]['dialplan_detail_type'] = $type;
+			$array['dialplan_details'][$x]['dialplan_detail_data'] = $data;
+			$array['dialplan_details'][$x]['dialplan_detail_group'] = $curl['dialplan_detail_group'];
+			$array['dialplan_details'][$x]['dialplan_detail_order'] = $order;
+			$array['dialplan_details'][$x]['dialplan_detail_enabled'] = true;
+			$x++;
+		};
+		foreach ($group as $i => $detail) {
+			if ($i === $position) {
+				if (!$cleared) {
+					$add('unset', 'curl_response_data');
+				}
+				if (!$timeout_set) {
+					$add('set', 'curl_timeout='.$timeout);
+				}
+			}
+			$order += 10;
+			if ($detail['dialplan_detail_order'] != $order) {
+				$array['dialplan_details'][$x]['dialplan_detail_uuid'] = $detail['dialplan_detail_uuid'];
+				$array['dialplan_details'][$x]['dialplan_uuid'] = $dialplan_uuid;
+				$array['dialplan_details'][$x]['dialplan_detail_order'] = $order;
+				$x++;
+			}
+			if ($i === $position && !$timeout_unset) {
+				$add('unset', 'curl_timeout');
+			}
+		}
+
+		//save the actions
+		$p = permissions::new();
+		$p->add('dialplan_detail_add', 'temp');
+		$p->add('dialplan_detail_edit', 'temp');
+		$this->database->save($array, false);
+		unset($array);
+		$p->delete('dialplan_detail_add', 'temp');
+		$p->delete('dialplan_detail_edit', 'temp');
+		return true;
 	}
 
 	/**
@@ -743,60 +908,18 @@ class identity_setup {
 	}
 
 	/**
-	 * Add the call's numbers to the verification actions added by earlier versions or by hand, and URL encode them.
+	 * Update the verification actions added by earlier versions or by hand.
 	 *
-	 * Earlier versions did not send them, so verify.php could not check that a PASSporT was signed for the call, and
-	 * returns No-TN-Validation without them. Runs on upgrade and rebuilds the XML of each dialplan changed.
+	 * Adds the call's numbers, which earlier versions did not send, so verify.php could not check that a PASSporT was
+	 * signed for the call and returns No-TN-Validation without them, URL encodes the caller controlled values, and adds
+	 * the steps around the request (see prepare_curl()). Runs on upgrade and rebuilds the XML of each dialplan changed.
 	 *
 	 * @return int Number of dialplans updated
 	 */
 	public function upgrade_verification(): int {
-		//find the verification actions
-		$sql = "select d.dialplan_detail_uuid, d.dialplan_uuid, d.dialplan_detail_data, p.dialplan_context ";
-		$sql .= "from v_dialplan_details as d ";
-		$sql .= "inner join v_dialplans as p on p.dialplan_uuid = d.dialplan_uuid ";
-		$sql .= "where d.dialplan_detail_tag = 'action' ";
-		$sql .= "and d.dialplan_detail_type = 'curl' ";
-		$sql .= "and d.dialplan_detail_data like :verify_url ";
-		$parameters['verify_url'] = '%/app/identity/verify.php%';
-		$rows = $this->database->select($sql, $parameters, 'all');
-		unset($sql, $parameters);
-		if (!is_array($rows)) {
-			return 0;
-		}
-
-		//add the parameters
-		$x = 0;
-		$array = [];
-		$dialplans = [];
-		foreach ($rows as $row) {
-			$data = self::add_verify_parameters($row['dialplan_detail_data']);
-			if ($data === $row['dialplan_detail_data']) {
-				continue;
-			}
-			$array['dialplan_details'][$x]['dialplan_detail_uuid'] = $row['dialplan_detail_uuid'];
-			$array['dialplan_details'][$x]['dialplan_uuid'] = $row['dialplan_uuid'];
-			$array['dialplan_details'][$x]['dialplan_detail_data'] = $data;
-			$dialplans[$row['dialplan_uuid']] = $row['dialplan_context'];
-			$x++;
-		}
-		if (empty($array)) {
-			return 0;
-		}
-
-		//save the actions
-		$p = permissions::new();
-		$p->add('dialplan_detail_edit', 'temp');
-		$this->database->save($array, false);
-		unset($array);
-		$p->delete('dialplan_detail_edit', 'temp');
-
-		//rebuild the dialplan xml and clear the cache
-		foreach ($dialplans as $dialplan_uuid => $dialplan_context) {
-			$this->update_dialplan($dialplan_uuid, $dialplan_context);
-		}
-
-		return count($dialplans);
+		return $this->upgrade_actions('%/app/identity/verify.php%', self::verify_timeout, function (string $data): string {
+			return self::add_verify_parameters($data);
+		});
 	}
 
 	/**
@@ -840,7 +963,10 @@ class identity_setup {
 		$array['dialplans'][0]['dialplan_description'] = 'Verify the STIR/SHAKEN Identity header of inbound calls.';
 		$details = [
 			['condition', '${sip_identity}', '^.+$'],
+			['action', 'unset', 'curl_response_data'],
+			['action', 'set', 'curl_timeout='.self::verify_timeout],
 			['action', 'curl', self::add_verify_parameters(self::local_url.'/verify.php POST identity=${url_encode(${sip_identity})}&call_uuid=${uuid}')],
+			['action', 'unset', 'curl_timeout'],
 			['action', 'set', 'identity_verstat=${curl_response_data}'],
 		];
 		foreach ($details as $y => $detail) {

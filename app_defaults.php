@@ -36,22 +36,22 @@
 		unset($identity_settings, $copied);
 	}
 
-//url encode the caller id and dialed number in the outbound routes signed by earlier versions, once rather than for every domain
+//update the signing actions of the outbound routes signed by earlier versions, once rather than for every domain
 	if ($domains_processed == 1) {
 		$identity_setup = new identity_setup(['database' => $database, 'domain_uuid' => '']);
 		$updated = $identity_setup->upgrade_signing();
 		if ($updated > 0) {
-			echo "[ Identity ] URL encoded the caller ID and dialed number in the signing actions of ".$updated." outbound route(s).\n";
+			echo "[ Identity ] Updated the signing actions of ".$updated." outbound route(s): URL encoding, curl timeouts and clearing the previous response.\n";
 		}
 		unset($identity_setup, $updated);
 	}
 
-//send the calling and called numbers to verify.php in the verification dialplans added by earlier versions, once rather than for every domain
+//update the verification actions added by earlier versions, once rather than for every domain
 	if ($domains_processed == 1) {
 		$identity_setup = new identity_setup(['database' => $database, 'domain_uuid' => '']);
 		$updated = $identity_setup->upgrade_verification();
 		if ($updated > 0) {
-			echo "[ Identity ] Added the calling and called numbers to the verification action of ".$updated." dialplan(s).\n";
+			echo "[ Identity ] Updated the verification action of ".$updated." dialplan(s): the call's numbers, URL encoding, curl timeouts and clearing the previous response.\n";
 		}
 		unset($identity_setup, $updated);
 	}

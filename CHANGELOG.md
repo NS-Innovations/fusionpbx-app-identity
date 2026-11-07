@@ -47,6 +47,9 @@ Run `php /var/www/fusionpbx/core/upgrade/upgrade.php` after updating. It:
 - URL encodes the caller ID and dialed number in existing signing actions, so they cannot add parameters to the
   sign.php request.
 - adds the calling and called numbers to existing verification actions, and URL encodes their values.
+- adds a timeout (`curl_timeout`, 3 seconds for signing and 6 for verification) around the requests to sign.php and
+  verify.php in existing actions, and clears `curl_response_data` before them, so a slow or failed request can neither
+  hold up call setup nor send an earlier response as the `Identity` header.
 - adds the `v_identity_logs` table, the permissions, the menu item and the new Default Settings.
 
 Behaviour changes to check before upgrading:

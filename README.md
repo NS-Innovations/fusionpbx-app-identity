@@ -284,8 +284,10 @@ Adding signing inserts these actions before the first bridge of the route, then 
 dialplan cache:
 
 ```
-<action application="unset" data="sip_h_Identity"/>
+<action application="multiunset" data="sip_h_Identity curl_response_data"/>
+<action application="set" data="curl_timeout=3"/>
 <action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=${url_encode(1$1)}&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}"/>
+<action application="unset" data="curl_timeout"/>
 <action application="export" data="exclude_outgoing_extra_header=sip_h_Identity"/>
 <action application="set" data="sip_h_Identity=${curl_response_data}"/>
 ```
@@ -294,10 +296,18 @@ The `export exclude_outgoing_extra_header=sip_h_Identity` line is required. With
 twice, and carriers reject the call with `400 Multiple Identity headers`. The route name links to the dialplan
 editor if you need to change the actions.
 
+The request to sign.php may take 3 seconds (`curl_timeout`). If it takes longer, or fails, the call goes out without
+an `Identity` header instead of waiting. The timeout is set as a channel variable and unset after the request, because
+FreeSWITCH 1.11 does not apply the `timeout` option of the `curl` application, and unsetting it keeps it from applying
+to later `curl` actions of the call. `curl_response_data` is cleared before the request because FreeSWITCH does not
+change it when a request fails or times out, so an earlier `curl` action on the same channel, such as inbound
+verification of a forwarded call, would otherwise be sent as the `Identity` header.
+
 The caller ID, the dialed number and any call reason are URL encoded so they cannot add parameters, such as a call
 reason, to the signing request. Earlier versions sent them without encoding; the upgrade updates those routes,
 including signing actions edited by hand, and prints how many it changed. It also adds `domain_uuid=${domain_uuid}`
-to actions that do not send it, since the attestation check needs the domain of the call.
+to actions that do not send it, since the attestation check needs the domain of the call, and adds the timeout and
+the clearing of `curl_response_data` around the request, renumbering the actions of the route when it adds steps.
 
 ### Attestation
 
@@ -329,13 +339,21 @@ in the dialplan editor and **Remove** deletes it.
 
 ```
 <condition field="${sip_identity}" expression="^.+$">
+	<action application="unset" data="curl_response_data"/>
+	<action application="set" data="curl_timeout=6"/>
 	<action application="curl" data="http://127.0.0.1/app/identity/verify.php POST identity=${url_encode(${sip_identity})}&call_uuid=${uuid}&source=${url_encode(${caller_id_number})}&destination=${url_encode(${destination_number})}"/>
+	<action application="unset" data="curl_timeout"/>
 	<action application="set" data="identity_verstat=${curl_response_data}"/>
 </condition>
 ```
 
-The upgrade adds `source` and `destination` to verification dialplans added by earlier versions or by hand, and URL
-encodes the `identity`, `source` and `destination` values that are not encoded yet.
+The upgrade adds `source` and `destination` to verification dialplans added by earlier versions or by hand, URL
+encodes the `identity`, `source` and `destination` values that are not encoded yet, and adds the timeout and the
+clearing of `curl_response_data` around the request, as for signing.
+
+The request to verify.php may take 6 seconds (`curl_timeout`): enough for the certificate download (up to 2 seconds)
+and, once an hour, the CRL and its signer certificate (up to 2 seconds each). If it takes longer, `identity_verstat`
+is left empty and the call continues.
 
 `identity_verstat` is set to one of:
 
