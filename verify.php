@@ -7,6 +7,9 @@ $no_cidr = true;
 // Include files
 require_once dirname(__DIR__, 2) . "/resources/require.php";
 
+// Never display PHP errors, whatever error.reporting is set to: the response becomes a SIP header or channel variable
+ini_set('display_errors', '0');
+
 // Get the identity settings from Default Settings
 $identity_settings = (new identity_settings(['database' => $database, 'config' => $config]))->get();
 $debug = $identity_settings['debug'];

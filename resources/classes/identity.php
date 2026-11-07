@@ -703,20 +703,14 @@ class identity {
 		// Sign with ECDSA SHA256
 		$signature = '';
 		if (!openssl_sign($signing_input, $signature, $private_key, OPENSSL_ALGO_SHA256)) {
-			$error = openssl_error_string();
-			openssl_pkey_free($private_key);
-			return ['passport' => '', 'error' => 'Signing failed: ' . $error];
+			return ['passport' => '', 'error' => 'Signing failed: ' . openssl_error_string()];
 		}
 
 		// Convert DER signature to raw R||S format (IEEE P1363)
 		$raw_signature = $this->der_to_raw($signature);
 		if ($raw_signature === false) {
-			openssl_pkey_free($private_key);
 			return ['passport' => '', 'error' => 'Failed to convert signature format'];
 		}
-
-		// Clean up private key
-		openssl_pkey_free($private_key);
 
 		// Encode signature to base64url
 		$encoded_signature = $this->base64_url_encode($raw_signature);
@@ -1381,8 +1375,6 @@ class identity {
 			return ['private_key_path' => '', 'certificate_path' => '',
 					'error' => 'Failed to sign certificate: ' . $error];
 		}
-
-		openssl_pkey_free($private_key);
 
 		// Export certificate
 		$certificate_pem = openssl_x509_export($certificate, $cert_str);
