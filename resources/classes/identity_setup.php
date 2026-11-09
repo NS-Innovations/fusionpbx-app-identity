@@ -782,7 +782,7 @@ class identity_setup {
 		//find the group of the first bridge, and stop if the route already signs
 		$group = null;
 		foreach ($details as $detail) {
-			if ($detail['dialplan_detail_type'] == 'curl' && strpos($detail['dialplan_detail_data'], '/app/identity/sign.php') !== false) {
+			if ($detail['dialplan_detail_tag'] == 'action' && $detail['dialplan_detail_type'] == 'curl' && strpos($detail['dialplan_detail_data'], '/app/identity/sign.php') !== false) {
 				return false;
 			}
 			if ($group === null && $detail['dialplan_detail_tag'] == 'action' && $detail['dialplan_detail_type'] == 'bridge') {
@@ -845,6 +845,11 @@ class identity_setup {
 		$p->delete('dialplan_detail_add', 'temp');
 		$p->delete('dialplan_detail_edit', 'temp');
 
+		//stop if the actions were not saved, the exclusion is kept
+		if (!$this->route_signs($dialplan_uuid)) {
+			return false;
+		}
+
 		//rebuild the dialplan xml and clear the cache
 		$this->update_dialplan($dialplan_uuid, $route['dialplan_context']);
 
@@ -858,13 +863,15 @@ class identity_setup {
 	 * Remove signing from an outbound route.
 	 *
 	 * Deletes the actions added by add_signing() and rebuilds the dialplan XML. The route is excluded from Sign All
-	 * Routes first, so a run of Sign All Routes never sees it unsigned and not excluded. Holds the route's lock, so it
-	 * cannot run at the same time as another change to the route's signing.
+	 * Routes first, so a run of Sign All Routes never sees it unsigned and not excluded; nothing is deleted when the
+	 * exclusion cannot be saved. A route that does not sign is only excluded. Holds the route's lock, so it cannot run
+	 * at the same time as another change to the route's signing.
 	 *
 	 * @param string $dialplan_uuid Outbound route dialplan UUID
 	 * @param bool   $all           Allow a route of any domain instead of only the current domain
 	 *
-	 * @return bool True if signing was removed
+	 * @return bool True if the route no longer signs and is excluded (or the upgrade has not added the exclusions
+	 *              table and signing was removed)
 	 */
 	public function remove_signing(string $dialplan_uuid, bool $all = false): bool {
 		if (!is_uuid($dialplan_uuid)) {
@@ -912,12 +919,20 @@ class identity_setup {
 		$parameters['timeout'] = 'curl_timeout='.self::sign_timeout;
 		$rows = $this->database->select($sql, $parameters, 'all');
 		unset($sql, $parameters);
-		if (!is_array($rows) || @sizeof($rows) == 0) {
+		if (!is_array($rows)) {
 			return false;
 		}
 
-		//keep sign all routes from signing the route again, before the actions are deleted
-		$this->exclude_route($dialplan_uuid, (string)$route['domain_uuid']);
+		//keep sign all routes from signing the route again, before the actions are deleted; stop if the exclusion was
+		//not saved, so the route is never left unsigned and not excluded
+		if (!$this->exclude_route($dialplan_uuid, (string)$route['domain_uuid'])) {
+			return false;
+		}
+
+		//a route that does not sign is only excluded, so sign all routes leaves it unsigned
+		if (@sizeof($rows) == 0) {
+			return $this->has_exclusions_table();
+		}
 
 		//delete the actions
 		foreach ($rows as $x => $row) {
@@ -930,10 +945,10 @@ class identity_setup {
 		unset($array);
 		$p->delete('dialplan_detail_delete', 'temp');
 
-		//rebuild the dialplan xml and clear the cache
+		//rebuild the dialplan xml and clear the cache, also when the delete failed part way
 		$this->update_dialplan($dialplan_uuid, $route['dialplan_context']);
 
-		return true;
+		return !$this->route_signs($dialplan_uuid);
 	}
 
 	/**
@@ -967,24 +982,25 @@ class identity_setup {
 
 	/**
 	 * Remove signing from the checked routes of a list, which excludes them from Sign All Routes. Checked routes that
-	 * do not sign are left as they are.
+	 * do not sign are excluded, so Sign All Routes does not sign them; those already excluded are left as they are.
 	 *
 	 * @param array $routes Rows posted by the routes list, each with keys: checked, uuid
 	 * @param bool  $all    Allow the routes of any domain, and global routes, instead of only the current domain
 	 *
-	 * @return array Counts with keys: removed, failed
+	 * @return array Counts with keys: removed, excluded (routes that did not sign and were excluded), failed
 	 */
 	public function unsign_routes(array $routes, bool $all = false): array {
-		$result = ['removed' => 0, 'failed' => 0];
+		$result = ['removed' => 0, 'excluded' => 0, 'failed' => 0];
 		foreach ($routes as $route) {
 			if (!is_array($route) || ($route['checked'] ?? '') !== 'true' || !is_uuid($route['uuid'] ?? '')) {
 				continue;
 			}
-			if (!$this->route_signs($route['uuid'])) {
+			$signs = $this->route_signs($route['uuid']);
+			if (!$signs && (!$this->has_exclusions_table() || $this->is_excluded($route['uuid']))) {
 				continue;
 			}
 			if ($this->remove_signing($route['uuid'], $all)) {
-				$result['removed']++;
+				$result[$signs ? 'removed' : 'excluded']++;
 			}
 			else {
 				$result['failed']++;
@@ -1264,11 +1280,12 @@ class identity_setup {
 	 * @param string $dialplan_uuid Outbound route dialplan UUID
 	 * @param string $domain_uuid   Domain UUID of the route, empty for a global route
 	 *
-	 * @return void
+	 * @return bool True if the route is excluded or the upgrade has not added the table yet, false if the exclusion
+	 *              could not be saved
 	 */
-	private function exclude_route(string $dialplan_uuid, string $domain_uuid) {
+	private function exclude_route(string $dialplan_uuid, string $domain_uuid): bool {
 		if (!$this->has_exclusions_table() || $this->is_excluded($dialplan_uuid)) {
-			return;
+			return true;
 		}
 		$array['identity_route_exclusions'][0]['identity_route_exclusion_uuid'] = uuid();
 		$array['identity_route_exclusions'][0]['domain_uuid'] = is_uuid($domain_uuid) ? $domain_uuid : null;
@@ -1278,6 +1295,7 @@ class identity_setup {
 		$this->database->save($array, false);
 		unset($array);
 		$p->delete('identity_route_exclusion_add', 'temp');
+		return $this->is_excluded($dialplan_uuid);
 	}
 
 	/**

@@ -6,11 +6,14 @@
   and routes added later. Routes are signed when the setting is saved, at most once an hour after a call is signed or
   verified or when a platform administrator opens Setup or Routes, and on upgrade. A run from the web server stops after
   20 seconds and continues on the next one; routes are locked while signing is added or removed. **Remove** excludes a
-  route so it is not signed again, and **Add** includes it again. Routes whose destination cannot be found in the bridge
-  are skipped and counted in the checks. Needs the upgrade, which adds the `v_identity_route_exclusions` table.
+  route so it is not signed again, including a route that does not sign yet, and **Add** includes it again. Signing is
+  removed only once the exclusion is saved. Calls start a run only under PHP-FPM, after the response was sent. Routes
+  whose destination cannot be found in the bridge are skipped and counted in the checks. Needs the upgrade, which adds
+  the `v_identity_route_exclusions` table.
 - **Routes page:** the outbound routes moved from Setup to their own page, so Setup stays short on servers with many
   routes. The list is paged, searchable by route or domain name, filterable by signing and sortable, and routes can be
-  checked to add or remove signing on several at once. **Add All** works across every page that matches the search.
+  checked to add or remove signing on several at once. **Add All** works across every page that matches the search,
+  and is hidden when the list is filtered to signed or excluded routes.
   A route whose destination cannot be found in the bridge is shown with the destination empty instead of `$1`, and
   **Add All** skips it unless a destination is entered. The routes are filtered and paged in the database, so the
   overview and Setup no longer read every route of every domain to count them.

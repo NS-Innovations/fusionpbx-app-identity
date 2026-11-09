@@ -19,8 +19,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the changes in each release.
 ## Requirements
 
 - FusionPBX 5.6 (developed on 5.6.6)
-- PostgreSQL. The overview and Logs pages use PostgreSQL SQL (`filter`, `timezone()`, intervals), so MySQL and SQLite
-  are not supported, although `app_config.php` declares column types for them as FusionPBX apps do
+- PostgreSQL. The overview, Logs and Routes pages use PostgreSQL SQL (`filter`, `timezone()`, intervals) and Sign All
+  Routes uses PostgreSQL advisory locks, so MySQL and SQLite are not supported, although `app_config.php` declares
+  column types for them as FusionPBX apps do
 - PHP 8.1 or later with the openssl, curl and mbstring extensions. PHP 8.4 or later is recommended: it checks the
   address of a certificate download after connecting (see [Inbound Verification](#inbound-verification))
 - APCu for PHP-FPM is recommended: without it the replay check is off and the certificate of each inbound call is
@@ -211,7 +212,8 @@ The routes are signed:
 - at most once an hour after a call is signed or verified, or when a user with `identity_setup_all` opens Setup or
   the Routes page, so a new route is signed within an hour without a cron job (the time of the last run is kept in
   `identity_sign_all_routes_<uid>` in the FusionPBX cache directory). Users without `identity_setup_all` never start a
-  run, since it changes the routes of every domain
+  run, since it changes the routes of every domain. Calls start a run only under PHP-FPM, after the response was sent
+  to FreeSWITCH, so a call never waits for it
 - on upgrade
 
 A run started from the web server stops after 20 seconds, so turning the setting on for thousands of routes is not
@@ -220,8 +222,10 @@ rest are signed by the next calls or page views. The upgrade has no time limit. 
 PostgreSQL advisory lock), and each route is locked while signing is added to or removed from it, so a run cannot
 sign a route again while **Remove** is taking signing off it, or add signing twice while **Add** is adding it.
 
-**Remove** excludes a route: it stays unsigned and is shown as **Excluded** while the setting is on. Click **Add** on
-the route to sign it again, which removes the exclusion. **Add All** leaves excluded routes alone. Exclusions are kept
+**Remove** excludes a route: it stays unsigned and is shown as **Excluded** while the setting is on. A route that is
+not signed yet can be excluded too, so it is never signed: check it and click **Remove** at the top. Click **Add** on
+the route to sign it again, which removes the exclusion. **Add All** leaves excluded routes alone and is shown only
+when the list is not filtered to **Signed** or **Excluded**. Exclusions are kept
 in the `v_identity_route_exclusions` table, created by the upgrade, and are deleted with their route. Until the
 upgrade has created the table nothing is signed automatically.
 

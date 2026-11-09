@@ -126,6 +126,9 @@
 					if ($result['removed'] > 0) {
 						message::add($text['message-signing_removed_all'].' '.$result['removed']);
 					}
+					if ($result['excluded'] > 0) {
+						message::add($text['message-signing_excluded_all'].' '.$result['excluded']);
+					}
 					if ($result['failed'] > 0) {
 						message::add($text['message-signing_remove_failed_all'].' '.$result['failed'], 'negative', 5000);
 					}
@@ -172,7 +175,7 @@
 		echo button::create(['type'=>'button','label'=>$text['button-add'],'icon'=>$settings->get('theme', 'button_icon_add'),'id'=>'btn_add_signing','name'=>'btn_add_signing','class'=>'+revealed','style'=>'display: none; margin-left: 15px;','onclick'=>"list_action_set('add'); list_form_submit('form_list');"]);
 		echo button::create(['type'=>'button','label'=>$text['button-remove'],'icon'=>$settings->get('theme', 'button_icon_delete'),'id'=>'btn_remove_signing','name'=>'btn_remove_signing','class'=>'+revealed','style'=>'display: none;','onclick'=>"if (confirm('".$text['confirm-remove_signing_checked']."')) { list_action_set('remove'); list_form_submit('form_list'); }"]);
 	}
-	if ($routes && $num_addable > 0) {
+	if ($routes && $num_addable > 0 && in_array($status, ['', 'unsigned'], true)) {
 		echo button::create(['type'=>'button','label'=>$text['button-add_all'],'icon'=>$settings->get('theme', 'button_icon_add'),'id'=>'btn_add_signing_all','style'=>'margin-left: 15px;','onclick'=>"if (confirm('".$text['confirm-add_signing_all']."')) { list_action_set('add_all'); list_form_submit('form_list'); }"]);
 	}
 	echo "		<form id='form_search' class='inline' method='get'>\n";

@@ -72,8 +72,8 @@ $text['label-check_attestation']['en-gb'] = "Attestation Check";
 $text['label-setting_sign_all_routes']['en-us'] = "Sign All Routes";
 $text['label-setting_sign_all_routes']['en-gb'] = "Sign All Routes";
 
-$text['description-setting_sign_all_routes']['en-us'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when a platform administrator opens Setup or Routes, or on upgrade. Routes that signing is removed from with Remove on the Routes page are excluded and stay unsigned until Add is clicked; signing deleted in the dialplan editor is added back. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
-$text['description-setting_sign_all_routes']['en-gb'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when a platform administrator opens Setup or Routes, or on upgrade. Routes that signing is removed from with Remove on the Routes page are excluded and stay unsigned until Add is clicked; signing deleted in the dialplan editor is added back. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
+$text['description-setting_sign_all_routes']['en-us'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when a platform administrator opens Setup or Routes, or on upgrade. Routes checked and removed with Remove on the Routes page, signed or not yet, are excluded and stay unsigned until Add is clicked; signing deleted in the dialplan editor is added back. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
+$text['description-setting_sign_all_routes']['en-gb'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when a platform administrator opens Setup or Routes, or on upgrade. Routes checked and removed with Remove on the Routes page, signed or not yet, are excluded and stay unsigned until Add is clicked; signing deleted in the dialplan editor is added back. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
 
 $text['label-check_sign_all_routes']['en-us'] = "Sign All Routes";
 $text['label-check_sign_all_routes']['en-gb'] = "Sign All Routes";
@@ -222,8 +222,11 @@ $text['confirm-remove_signing_checked']['en-gb'] = "Remove signing from the chec
 $text['message-signing_removed_all']['en-us'] = "Signing removed from routes:";
 $text['message-signing_removed_all']['en-gb'] = "Signing removed from routes:";
 
-$text['message-signing_remove_failed_all']['en-us'] = "Signing could not be removed from routes, they were not found in this domain or do not sign calls:";
-$text['message-signing_remove_failed_all']['en-gb'] = "Signing could not be removed from routes, they were not found in this domain or do not sign calls:";
+$text['message-signing_excluded_all']['en-us'] = "Routes that did not sign excluded from Sign All Routes:";
+$text['message-signing_excluded_all']['en-gb'] = "Routes that did not sign excluded from Sign All Routes:";
+
+$text['message-signing_remove_failed_all']['en-us'] = "Signing could not be removed from routes, they were not found in this domain or the change could not be saved:";
+$text['message-signing_remove_failed_all']['en-gb'] = "Signing could not be removed from routes, they were not found in this domain or the change could not be saved:";
 
 $text['message-signing_skipped_all']['en-us'] = "Routes not signed because the destination was not found in the bridge, set the destination and click Add:";
 $text['message-signing_skipped_all']['en-gb'] = "Routes not signed because the destination was not found in the bridge, set the destination and click Add:";
