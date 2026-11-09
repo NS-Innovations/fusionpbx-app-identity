@@ -40,8 +40,6 @@
 	$text = $language->get();
 
 //set the defaults
-	$show = $_GET["show"] ?? '';
-	$show_all = $show == 'all' && permission_exists('identity_setup_all');
 	$platform = permission_exists('identity_setup_all');
 	$setup = new identity_setup(['database' => $database, 'config' => $config, 'domain_uuid' => $domain_uuid]);
 	$settings_manager = new identity_settings(['database' => $database, 'config' => $config]);
@@ -51,9 +49,6 @@
 
 //get posted data
 	$action = $_POST['action'] ?? '';
-	if (!empty($_POST['route_action'])) {
-		[$action, $route_uuid] = array_pad(explode(':', $_POST['route_action'], 2), 2, '');
-	}
 
 //process http post data, unless the settings form is shown again after a validation error
 	if (!empty($action) && empty($_POST['persistformvar'])) {
@@ -62,7 +57,7 @@
 			$token = new token;
 			if (!$token->validate($_SERVER['PHP_SELF'])) {
 				message::add($text['message-invalid_token'],'negative');
-				header('Location: identity_setup.php'.($show_all ? '?show=all' : ''));
+				header('Location: identity_setup.php');
 				exit;
 			}
 
@@ -103,6 +98,18 @@
 					//save the settings
 					if ($settings_manager->save($values)) {
 						message::add($text['message-settings_saved']);
+
+						//sign the routes of every domain now rather than within the hour
+						if ($values['sign_all_routes'] == 'true') {
+							$sign_all = $setup->sign_all_routes();
+							if ($sign_all['added'] > 0) {
+								message::add($text['message-signing_added_all'].' '.$sign_all['added']);
+							}
+							if ($sign_all['failed'] > 0) {
+								message::add($text['message-sign_all_failed'].' '.$sign_all['failed'], 'negative', 5000);
+							}
+							unset($sign_all);
+						}
 					}
 					else {
 						message::add($text['message-settings_failed'], 'negative', 5000);
@@ -167,49 +174,6 @@
 					}
 					$_SESSION['identity']['test'] = $test;
 					break;
-				case 'add_signing':
-					$destination = $_POST['routes'][$route_uuid]['destination'] ?? '';
-					$attest_level = $_POST['routes'][$route_uuid]['attest_level'] ?? '';
-					if ($setup->add_signing($route_uuid, $destination, $attest_level, $show_all)) {
-						message::add($text['message-signing_added']);
-					}
-					else {
-						message::add($text['message-signing_failed'], 'negative');
-					}
-					break;
-				case 'add_signing_all':
-					//sign each route that does not sign yet, with the destination and attestation shown for it
-					$added = 0;
-					$failed = 0;
-					foreach ($setup->outbound_routes($show_all) as $route) {
-						if ($route['signed']) {
-							continue;
-						}
-						$uuid = $route['dialplan_uuid'];
-						$destination = $_POST['routes'][$uuid]['destination'] ?? $route['destination'];
-						$attest_level = $_POST['routes'][$uuid]['attest_level'] ?? $route['attest_level'];
-						if ($setup->add_signing($uuid, $destination, $attest_level, $show_all)) {
-							$added++;
-						}
-						else {
-							$failed++;
-						}
-					}
-					if ($added > 0) {
-						message::add($text['message-signing_added_all'].' '.$added);
-					}
-					if ($failed > 0) {
-						message::add($text['message-signing_failed_all'].' '.$failed, 'negative', 5000);
-					}
-					break;
-				case 'remove_signing':
-					if ($setup->remove_signing($route_uuid, $show_all)) {
-						message::add($text['message-signing_removed']);
-					}
-					else {
-						message::add($text['message-signing_remove_failed'], 'negative');
-					}
-					break;
 				case 'add_verify':
 					if ($setup->add_verify_dialplan()) {
 						message::add($text['message-verify_added']);
@@ -223,7 +187,7 @@
 			}
 
 		//redirect the user
-			header('Location: identity_setup.php'.($show_all ? '?show=all' : ''));
+			header('Location: identity_setup.php');
 			exit;
 	}
 
@@ -321,16 +285,27 @@
 //check the allowed cidr
 	$cidr_invalid = identity_settings::invalid_cidr($identity_settings['allowed_cidr']);
 
-//get the routes and the inbound dialplan
-	$routes = $setup->outbound_routes($show_all);
+//sign the new routes of every domain, so the checks are current
+	if ($identity_settings['sign_all_routes']) {
+		$sign_all = $setup->sign_all_routes();
+		if ($sign_all['added'] > 0) {
+			message::add($text['message-signing_added_all'].' '.$sign_all['added']);
+		}
+		if ($sign_all['failed'] > 0) {
+			message::add($text['message-sign_all_failed'].' '.$sign_all['failed'], 'negative', 5000);
+		}
+		unset($sign_all);
+	}
+
+//count the routes, of every domain for platform administrators, and get the inbound dialplan
+	$route_counts = $setup->outbound_route_counts($platform);
 	$verify_dialplan = $setup->verify_dialplan();
-	$routes_signed = count(array_filter($routes, function($route) { return $route['signed']; }));
 
 //build the checks, each one is: label, status (ok, warning, error), details
 	$checks = [];
 
-	//log table
-	$table_exists = $database->table_exists('v_identity_logs');
+	//database tables
+	$table_exists = $database->table_exists('v_identity_logs') && $database->table_exists('v_identity_route_exclusions');
 	$checks[] = [$text['label-check_logs'], $table_exists ? 'ok' : 'error', $table_exists ? '' : $text['message-run_upgrade']];
 
 	//settings
@@ -397,11 +372,21 @@
 	}
 
 	//outbound routes
-	if (empty($routes)) {
+	if ($route_counts['total'] == 0) {
 		$checks[] = [$text['label-check_outbound'], 'warning', $text['message-no_routes']];
 	}
 	else {
-		$checks[] = [$text['label-check_outbound'], $routes_signed == count($routes) ? 'ok' : 'warning', $routes_signed.' / '.count($routes).' '.$text['label-routes_signing']];
+		$checks[] = [$text['label-check_outbound'], $route_counts['signed'] == $route_counts['total'] ? 'ok' : 'warning', $route_counts['signed'].' / '.$route_counts['total'].' '.$text['label-routes_signing']];
+	}
+
+	//sign all routes, the routes it cannot sign because the destination was not found in the bridge
+	if ($identity_settings['sign_all_routes']) {
+		if ($route_counts['skipped'] > 0) {
+			$checks[] = [$text['label-check_sign_all_routes'], 'warning', $text['message-sign_all_skipped'].' '.$route_counts['skipped']];
+		}
+		else {
+			$checks[] = [$text['label-check_sign_all_routes'], 'ok', $route_counts['excluded'].' '.$text['label-routes_excluded']];
+		}
 	}
 
 	//inbound verification
@@ -517,10 +502,8 @@
 	echo "	<div class='heading'><b>".$text['title-identity_setup']."</b></div>\n";
 	echo "	<div class='actions'>\n";
 	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'btn_back','link'=>'identity.php']);
-	if (!$show_all && permission_exists('identity_setup_all')) {
-		echo button::create(['type'=>'button','label'=>$text['button-show_all'],'icon'=>$settings->get('theme', 'button_icon_all'),'link'=>'?show=all']);
-	}
-	echo button::create(['type'=>'button','label'=>$text['button-refresh'],'icon'=>$settings->get('theme', 'button_icon_refresh'),'id'=>'btn_refresh','style'=>'margin-left: 15px;','link'=>'identity_setup.php'.($show_all ? '?show=all' : '')]);
+	echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes','link'=>'identity_routes.php']);
+	echo button::create(['type'=>'button','label'=>$text['button-refresh'],'icon'=>$settings->get('theme', 'button_icon_refresh'),'id'=>'btn_refresh','style'=>'margin-left: 15px;','link'=>'identity_setup.php']);
 	echo "	</div>\n";
 	echo "	<div style='clear: both;'></div>\n";
 	echo "</div>\n";
@@ -725,68 +708,13 @@
 		echo "<br /><br />\n";
 	}
 
-	//outbound routes
-	echo "<form method='post' name='frm_routes' id='frm_routes'>\n";
+	//outbound routes, signed on their own page
 	echo "<b>".$text['header-outbound']."</b>\n";
 	echo "<br /><br />\n";
 	echo $text['description-outbound']."\n";
 	echo "<br /><br />\n";
-	echo "<div class='card'>\n";
-	echo "<table class='list'>\n";
-	echo "<tr class='list-header'>\n";
-	if ($show_all) {
-		echo "	<th>".$text['label-domain']."</th>\n";
-	}
-	echo "	<th>".$text['label-name']."</th>\n";
-	echo "	<th class='center'>".$text['label-enabled']."</th>\n";
-	echo "	<th>".$text['label-signing']."</th>\n";
-	echo "	<th>".$text['label-destination']."</th>\n";
-	echo "	<th>".$text['label-attest']."</th>\n";
-	echo "	<td class='action-button'>&nbsp;</td>\n";
-	echo "</tr>\n";
-	if (empty($routes)) {
-		echo "<tr class='list-row'><td colspan='".($show_all ? 7 : 6)."'>".$text['message-no_routes']."</td></tr>\n";
-	}
-	foreach ($routes as $route) {
-		$uuid = $route['dialplan_uuid'];
-		echo "<tr class='list-row'>\n";
-		if ($show_all) {
-			echo "	<td>".escape($route['domain_name'])."</td>\n";
-		}
-		echo "	<td><a href='".PROJECT_PATH."/app/dialplans/dialplan_edit.php?id=".urlencode($uuid)."&app_uuid=".urlencode(identity_setup::outbound_route_app_uuid)."'>".escape($route['dialplan_name'])."</a></td>\n";
-		echo "	<td class='center'>".$text['label-'.$route['dialplan_enabled']]."</td>\n";
-		echo "	<td>".($route['signed'] ? $text['label-yes'] : $text['label-no'])."</td>\n";
-		if ($route['signed']) {
-			echo "	<td>".escape($route['destination'])."</td>\n";
-			echo "	<td>".escape($route['attest_level'])."</td>\n";
-			echo "	<td class='action-button'>";
-			echo button::create(['type'=>'submit','label'=>$text['button-remove'],'icon'=>$settings->get('theme', 'button_icon_delete'),'name'=>'route_action','value'=>'remove_signing:'.$uuid,'onclick'=>"return confirm('".$text['confirm-remove_signing']."');"]);
-			echo "</td>\n";
-		}
-		else {
-			echo "	<td><input class='formfld' type='text' name='routes[".escape($uuid)."][destination]' maxlength='16' style='width: 80px;' value=\"".escape($route['destination'])."\"></td>\n";
-			echo "	<td>\n";
-			echo "		<select class='formfld' name='routes[".escape($uuid)."][attest_level]'>\n";
-			foreach (['A', 'B', 'C'] as $level) {
-				echo "			<option value='".$level."' ".($route['attest_level'] == $level ? "selected='selected'" : null).">".$level."</option>\n";
-			}
-			echo "		</select>\n";
-			echo "	</td>\n";
-			echo "	<td class='action-button'>";
-			echo button::create(['type'=>'submit','label'=>$text['button-add'],'icon'=>$settings->get('theme', 'button_icon_add'),'name'=>'route_action','value'=>'add_signing:'.$uuid]);
-			echo "</td>\n";
-		}
-		echo "</tr>\n";
-	}
-	echo "</table>\n";
-	echo "</div>\n";
-	if ($routes_signed < count($routes)) {
-		echo "<br />\n";
-		echo button::create(['type'=>'submit','label'=>$text['button-add_all'],'icon'=>$settings->get('theme', 'button_icon_add'),'id'=>'btn_add_signing_all','name'=>'route_action','value'=>'add_signing_all:','onclick'=>"return confirm('".$text['confirm-add_signing_all']."');"]);
-	}
-	echo "<input type='hidden' name='".$token['name']."' value='".$token['hash']."'>\n";
-	echo "</form>\n";
-	echo "<br />\n";
+	echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes_section','link'=>'identity_routes.php']);
+	echo "<br /><br /><br />\n";
 
 	//inbound verification applies to the whole platform
 	if ($platform) {

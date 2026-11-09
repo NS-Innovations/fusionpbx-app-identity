@@ -69,8 +69,7 @@
 	$identity_settings = $setup->settings();
 	$identity = new identity($identity_settings);
 	$status = $identity->certificate_status();
-	$routes = $setup->outbound_routes($show_all && permission_exists('identity_setup_all'));
-	$routes_signed = count(array_filter($routes, function($route) { return $route['signed']; }));
+	$route_counts = $setup->outbound_route_counts($show_all && permission_exists('identity_setup_all'));
 	$verify_dialplan = $setup->verify_dialplan();
 	$table_exists = $database->table_exists('v_identity_logs');
 
@@ -160,7 +159,8 @@
 		echo button::create(['type'=>'button','label'=>$text['button-logs'],'icon'=>$settings->get('theme', 'button_icon_view'),'id'=>'btn_logs','link'=>'identity_logs.php'.($show_all ? '?show=all' : '')]);
 	}
 	if (permission_exists('identity_setup')) {
-		echo button::create(['type'=>'button','label'=>$text['button-setup'],'icon'=>$settings->get('theme', 'button_icon_settings'),'id'=>'btn_setup','link'=>'identity_setup.php'.($show_all ? '?show=all' : '')]);
+		echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes','link'=>'identity_routes.php'.($show_all && permission_exists('identity_setup_all') ? '?show=all' : '')]);
+		echo button::create(['type'=>'button','label'=>$text['button-setup'],'icon'=>$settings->get('theme', 'button_icon_settings'),'id'=>'btn_setup','link'=>'identity_setup.php']);
 	}
 	echo "		<form id='form_period' class='inline' method='get'>\n";
 	if ($show_all) {
@@ -243,7 +243,7 @@
 	echo "</tr>\n";
 	echo "<tr class='list-row'>\n";
 	echo "	<td class='no-wrap'>".$text['label-check_outbound']."</td>\n";
-	echo "	<td>".$routes_signed." / ".count($routes)." ".$text['label-routes_signing']."</td>\n";
+	echo "	<td>".$route_counts['signed']." / ".$route_counts['total']." ".$text['label-routes_signing']."</td>\n";
 	echo "</tr>\n";
 	echo "<tr class='list-row'>\n";
 	echo "	<td class='no-wrap'>".$text['label-check_inbound']."</td>\n";

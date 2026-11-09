@@ -56,4 +56,18 @@
 		unset($identity_setup, $updated);
 	}
 
+//add signing to the new outbound routes of every domain when sign all routes is on, once rather than for every domain
+	if ($domains_processed == 1) {
+		$identity_settings = (new identity_settings(['database' => $database]))->get();
+		if ($identity_settings['sign_all_routes']) {
+			$identity_setup = new identity_setup(['database' => $database, 'domain_uuid' => '']);
+			$sign_all = $identity_setup->sign_all_routes();
+			if ($sign_all['added'] > 0 || $sign_all['failed'] > 0 || $sign_all['skipped'] > 0) {
+				echo "[ Identity ] Sign All Routes: signed ".$sign_all['added']." outbound route(s), ".$sign_all['failed']." failed, ".$sign_all['skipped']." skipped because the destination was not found in the bridge.\n";
+			}
+			unset($identity_setup, $sign_all);
+		}
+		unset($identity_settings);
+	}
+
 ?>

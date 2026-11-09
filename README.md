@@ -8,7 +8,8 @@ Everything is managed in the web interface under **Advanced > Identity**:
 
 - **Identity** (overview): call counts, activity and recent failures
 - **Logs**: every sign and verify result
-- **Setup**: checks, settings, certificates, a test call, and the dialplan for outbound routes and inbound verification
+- **Routes**: the outbound routes, with adding and removing signing
+- **Setup**: checks, settings, certificates, a test call, and the dialplan for inbound verification
 
 The pages are for superadmin by default. The only command-line tool is `brand.php`, which manages branded calling
 brands.
@@ -100,7 +101,9 @@ and needs the `identity_setup_all` permission, which superadmin has. Work down t
    mismatch until the URL serves the same certificate.
 5. **Test:** enter a calling and called number and click **Test**. The call is signed, then verified with the local
    certificate and by downloading the certificate URL, the way a carrier would.
-6. **Outbound Routes:** click **Add** on each route, or **Add All**, to sign its calls.
+6. **Outbound Routes:** click **Routes**, then **Add** on each route, or **Add All**, to sign its calls. To sign every
+   route of every domain, including routes added later, turn on **Sign All Routes** instead (see
+   [Sign All Routes](#sign-all-routes)).
 7. **Inbound Verification:** click **Add** to verify the `Identity` header of inbound calls.
 
 Then watch the results on the Identity overview and the Logs page.
@@ -115,7 +118,7 @@ Then watch the results on the Identity overview and the Logs page.
 - the most recent failures
 - a summary of the certificate, certificate URL, outbound routes and inbound verification
 
-The **Logs** and **Setup** buttons open the other pages.
+The **Logs**, **Routes** and **Setup** buttons open the other pages.
 
 ## Logs
 
@@ -142,13 +145,118 @@ verified before the domain is known, so they hold the inbound calls of every dom
 and Logs pages, only to users with `identity_log_all`; other users see only the sign results of their own domain.
 **Show All** adds the sign results of the other domains.
 
+## Routes
+
+### Outbound Routes
+
+The **Routes** page (the **Routes** button on the overview and on Setup) lists each outbound route with a bridge and
+whether it signs calls. It needs the `identity_setup` permission. The list is paged with the domain's paging setting,
+can be searched by route or domain name, filtered by signing (signed, not signed, and excluded while
+[Sign All Routes](#sign-all-routes) is on) and sorted by domain, name, enabled or signing.
+
+For a route that does not sign yet, check the **Destination** and **Attestation**, then click **Add** on the row. To
+change several routes at once, check them and use **Add** or **Remove** at the top. **Add All** signs every route that
+does not sign yet and matches the search, on every page: the routes on the current page with the values in their rows,
+the others with the suggested destination and attestation A. It skips routes whose destination cannot be taken from the
+bridge and was not filled in, and reports how many routes were signed, failed and skipped. **Remove** takes signing off
+a route. Only the routes of the current domain can be changed, unless **Show All** is used, which needs the
+`identity_setup_all` permission. **Show All** also lists the global outbound routes (Domain set to Global in the
+dialplan editor), shown with the domain Global; changing one clears the dialplan cache of every domain.
+
+- **Destination:** the number sent to the carrier. The page suggests the end of the first bridge: `1$1` when the route
+  captures 10 digits, `$1` when it captures 11. It must have the form `[+][digits]$N`. When the destination cannot be
+  taken from the bridge, such as a bridge to `user/1000@domain`, the field is left empty to be filled in.
+- **Attestation:** A (full), B (partial) or C (gateway). A is the default. It is the highest level the route signs
+  with; see [Attestation](#attestation).
+
+Adding signing inserts these actions before the first bridge of the route, then rebuilds the route XML and clears the
+dialplan cache:
+
+```
+<action application="multiunset" data="sip_h_Identity curl_response_data"/>
+<action application="set" data="curl_timeout=3"/>
+<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=${url_encode(1$1)}&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}"/>
+<action application="unset" data="curl_timeout"/>
+<action application="export" data="exclude_outgoing_extra_header=sip_h_Identity"/>
+<action application="set" data="sip_h_Identity=${curl_response_data}"/>
+```
+
+The `export exclude_outgoing_extra_header=sip_h_Identity` line is required. Without it FreeSWITCH sends the header
+twice, and carriers reject the call with `400 Multiple Identity headers`. The route name links to the dialplan
+editor if you need to change the actions.
+
+The request to sign.php may take 3 seconds (`curl_timeout`). If it takes longer, or fails, the call goes out without
+an `Identity` header instead of waiting. The timeout is set as a channel variable and unset after the request, because
+FreeSWITCH 1.11 does not apply the `timeout` option of the `curl` application, and unsetting it keeps it from applying
+to later `curl` actions of the call. `curl_response_data` is cleared before the request because FreeSWITCH does not
+change it when a request fails or times out, so an earlier `curl` action on the same channel, such as inbound
+verification of a forwarded call, would otherwise be sent as the `Identity` header.
+
+The caller ID, the dialed number and any call reason are URL encoded so they cannot add parameters, such as a call
+reason, to the signing request. Earlier versions sent them without encoding; the upgrade updates those routes,
+including signing actions edited by hand, and prints how many it changed. It also adds `domain_uuid=${domain_uuid}`
+to actions that do not send it, since the attestation check needs the domain of the call, and adds the timeout and
+the clearing of `curl_response_data` around the request, renumbering the actions of the route when it adds steps.
+
+### Sign All Routes
+
+With the **Sign All Routes** setting on, signing is added to every outbound route of every domain that does not sign
+yet, including global routes, so new routes do not need to be added one at a time. Each route is signed the way
+**Add** would, with the destination suggested from the bridge and attestation A. The
+[attestation check](#attestation) still lowers A to B when the domain does not own the calling number.
+
+The routes are signed:
+
+- when the setting is saved in Setup
+- when Setup or the Routes page is opened
+- at most once an hour after a call is signed or verified, so a new route is signed within an hour without a cron job
+  (the time of the last run is kept in `identity_sign_all_routes_<uid>` in the FusionPBX cache directory)
+- on upgrade
+
+Only one run happens at a time (a PostgreSQL advisory lock), so two runs cannot add signing to the same route twice.
+
+**Remove** excludes a route: it stays unsigned and is shown as **Excluded** while the setting is on. Click **Add** on
+the route to sign it again, which removes the exclusion. **Add All** leaves excluded routes alone. Exclusions are kept
+in the `v_identity_route_exclusions` table, created by the upgrade, and are deleted with their route. Until the
+upgrade has created the table nothing is signed automatically.
+
+A route whose destination cannot be taken from the bridge, such as a bridge to `user/1000@domain`, is not signed,
+because it would only be guessing `$1`. The checks in Setup count them; set the destination of each on the Routes page
+(filter by **Not Signed**) and click **Add**.
+
+The setting changes the routes in the database, not how calls are handled: turning it off leaves the routes it signed
+as they are. Use **Remove** to take signing off a route.
+
+### Attestation
+
+The attestation level tells the receiver how much the signer vouches for the calling number:
+
+- **A (full):** the customer is authenticated and is authorized to use the calling number
+- **B (partial):** the customer is authenticated, but the signer cannot confirm the number belongs to them
+- **C (gateway):** the call entered the network from elsewhere, such as an international gateway
+
+Signing A for a number the customer does not own is mis-attestation, which carriers and regulators act on. With the
+**Attestation Check** setting on (the default), a call that the route would sign with A is signed with B unless the
+calling number is an enabled inbound destination of the call's domain. The destination number is matched on its own
+and with its area code, so `2025550100` matches the calling number `12025550100` or `+12025550100`. B and C routes
+are not changed.
+
+Only the destination number and area code count, which only superadmin can edit by default. The country code
+(`destination_prefix`) is ignored, because the stock admin group may edit it and could otherwise claim another
+customer's number. Store numbers outside North America with their country code in the destination number, such as
+`442071234567`.
+
+A lowered call is logged as signed with B, with the reason in the message. If a customer may use a number that is not
+one of their destinations, for example a number hosted elsewhere with a letter of authorization, add it as an inbound
+destination of their domain, or turn the check off.
+
 ## Setup
 
 ### Checks
 
 The checks table shows ok, warning or error, with details, for:
 
-- the log table
+- the database tables (`v_identity_logs` and `v_identity_route_exclusions`, created by the upgrade)
 - the settings (a warning while they are still read from `config.conf`, see below)
 - the certificate directory: present, and writable by the web server
 - the private key: present, readable, P-256, and permissions
@@ -158,7 +266,10 @@ The checks table shows ok, warning or error, with details, for:
 - the allowed CIDR
 - the attestation check (a warning when it is off)
 - debug mode
-- outbound routes
+- outbound routes: how many sign calls, counted over every domain for users with `identity_setup_all` and over the
+  current domain for others
+- Sign All Routes, when it is on: the number of excluded routes, and a warning with the number of routes it cannot sign
+  because the destination cannot be taken from the bridge
 - inbound verification
 - the trust list, when inbound verification is on or **Trust List** is set: present and readable, with the number of
   certificates, and a warning when some have expired
@@ -187,6 +298,7 @@ checked first; an invalid value is listed with a **Back** button that returns to
 | Certificate URL | *(none, required)* | Public https URL of the certificate, sent as `x5u` in every signature |
 | Allowed CIDR | `127.0.0.1/32` | Comma separated IPv4 ranges that can use sign.php and verify.php |
 | Attestation Check | true | Sign with B instead of A when the calling number is not a destination of the domain (see [Attestation](#attestation)) |
+| Sign All Routes | false | Add signing to the outbound routes of every domain, including global routes and new routes (see [Sign All Routes](#sign-all-routes)) |
 | Debug | false | Return error text instead of the normal response |
 | Log Retention (days) | 90 | Days to keep the identity logs; 0 keeps them forever (see [Logs](#logs)) |
 | Trust List | *(none)* | PEM file of the STI-CA root certificates approved by the STI-PA, and the STI-PA root certificate. Inbound calls are reported as `No-TN-Validation` while it is empty (see [Inbound Verification](#inbound-verification)) |
@@ -270,71 +382,6 @@ Enter a calling number, a called number and an attestation level, then click **T
   a trust list the result is `No-TN-Validation`
 
 Nothing is logged.
-
-### Outbound Routes
-
-Each outbound route with a bridge is listed with whether it signs calls. For a route that does not sign yet, check the
-**Destination** and **Attestation**, then click **Add**. **Add All** does the same for every unsigned route in the
-list, using the values in each row. It then reports how many routes were signed and how many failed. **Remove** takes
-signing off a route. Only the routes of the current domain can be changed, unless **Show All** is used, which needs the
-`identity_setup_all` permission.
-
-- **Destination:** the number sent to the carrier. Setup suggests the end of the first bridge: `1$1` when the route
-  captures 10 digits, `$1` when it captures 11. It must have the form `[+][digits]$N`.
-- **Attestation:** A (full), B (partial) or C (gateway). A is the default. It is the highest level the route signs
-  with; see [Attestation](#attestation).
-
-Adding signing inserts these actions before the first bridge of the route, then rebuilds the route XML and clears the
-dialplan cache:
-
-```
-<action application="multiunset" data="sip_h_Identity curl_response_data"/>
-<action application="set" data="curl_timeout=3"/>
-<action application="curl" data="http://127.0.0.1/app/identity/sign.php POST source=${url_encode(${effective_caller_id_number})}&destination=${url_encode(1$1)}&attest_level=A&domain_uuid=${domain_uuid}&call_uuid=${uuid}"/>
-<action application="unset" data="curl_timeout"/>
-<action application="export" data="exclude_outgoing_extra_header=sip_h_Identity"/>
-<action application="set" data="sip_h_Identity=${curl_response_data}"/>
-```
-
-The `export exclude_outgoing_extra_header=sip_h_Identity` line is required. Without it FreeSWITCH sends the header
-twice, and carriers reject the call with `400 Multiple Identity headers`. The route name links to the dialplan
-editor if you need to change the actions.
-
-The request to sign.php may take 3 seconds (`curl_timeout`). If it takes longer, or fails, the call goes out without
-an `Identity` header instead of waiting. The timeout is set as a channel variable and unset after the request, because
-FreeSWITCH 1.11 does not apply the `timeout` option of the `curl` application, and unsetting it keeps it from applying
-to later `curl` actions of the call. `curl_response_data` is cleared before the request because FreeSWITCH does not
-change it when a request fails or times out, so an earlier `curl` action on the same channel, such as inbound
-verification of a forwarded call, would otherwise be sent as the `Identity` header.
-
-The caller ID, the dialed number and any call reason are URL encoded so they cannot add parameters, such as a call
-reason, to the signing request. Earlier versions sent them without encoding; the upgrade updates those routes,
-including signing actions edited by hand, and prints how many it changed. It also adds `domain_uuid=${domain_uuid}`
-to actions that do not send it, since the attestation check needs the domain of the call, and adds the timeout and
-the clearing of `curl_response_data` around the request, renumbering the actions of the route when it adds steps.
-
-### Attestation
-
-The attestation level tells the receiver how much the signer vouches for the calling number:
-
-- **A (full):** the customer is authenticated and is authorized to use the calling number
-- **B (partial):** the customer is authenticated, but the signer cannot confirm the number belongs to them
-- **C (gateway):** the call entered the network from elsewhere, such as an international gateway
-
-Signing A for a number the customer does not own is mis-attestation, which carriers and regulators act on. With the
-**Attestation Check** setting on (the default), a call that the route would sign with A is signed with B unless the
-calling number is an enabled inbound destination of the call's domain. The destination number is matched on its own
-and with its area code, so `2025550100` matches the calling number `12025550100` or `+12025550100`. B and C routes
-are not changed.
-
-Only the destination number and area code count, which only superadmin can edit by default. The country code
-(`destination_prefix`) is ignored, because the stock admin group may edit it and could otherwise claim another
-customer's number. Store numbers outside North America with their country code in the destination number, such as
-`442071234567`.
-
-A lowered call is logged as signed with B, with the reason in the message. If a customer may use a number that is not
-one of their destinations, for example a number hosted elsewhere with a letter of authorization, add it as an inbound
-destination of their domain, or turn the check off.
 
 ### Inbound Verification
 
@@ -614,11 +661,11 @@ numbers the result is `No-TN-Validation`.
 | Permission | Allows |
 |---|---|
 | `identity_view` | The Identity overview and menu item |
-| `identity_setup` | The Setup page: the checks, and adding or removing signing on the current domain's outbound routes |
+| `identity_setup` | The Setup page checks, and the Routes page: adding or removing signing on the current domain's outbound routes |
 | `identity_log_view` | The Logs page |
 | `identity_log_delete` | Deleting log entries of the current domain (with `identity_log_all`, any entry) |
 | `identity_log_all` | **Show All** on the overview and Logs pages: the results of every domain. Also needed to see verify results, which have no domain |
-| `identity_setup_all` | Everything that applies to the whole platform: the settings, importing or generating the certificate, the Test, inbound verification, and **Show All** for the outbound routes of every domain. Give it only to platform administrators |
+| `identity_setup_all` | Everything that applies to the whole platform: the settings, importing or generating the certificate, the Test, inbound verification, and **Show All** on the Routes page for the outbound routes of every domain and the global routes. Give it only to platform administrators |
 | `identity_log_add` | Adding log entries (sign.php and verify.php grant it to themselves temporarily) |
 
 All are granted to superadmin by default.

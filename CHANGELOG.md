@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **Sign All Routes:** a new setting that adds signing to the outbound routes of every domain, including global
+  routes and routes added later. Routes are signed when the setting is saved, when Setup or Routes is opened, at most once an
+  hour after a call is signed or verified, and on upgrade. **Remove** excludes a route so it is not signed again, and
+  **Add** includes it again. Routes whose destination cannot be found in the bridge are skipped and counted in the
+  checks. Needs the upgrade, which adds the `v_identity_route_exclusions` table.
+- **Routes page:** the outbound routes moved from Setup to their own page, so Setup stays short on servers with many
+  routes. The list is paged, searchable by route or domain name, filterable by signing and sortable, and routes can be
+  checked to add or remove signing on several at once. **Add All** works across every page that matches the search.
+  A route whose destination cannot be found in the bridge is shown with the destination empty instead of `$1`, and
+  **Add All** skips it unless a destination is entered. The routes are filtered and paged in the database, so the
+  overview and Setup no longer read every route of every domain to count them.
+- **Setup:** the Outbound Signing check counts the routes of every domain for users with `identity_setup_all`, and
+  Setup no longer has a **Show All** button. Global outbound routes are shown with the domain Global under **Show All**
+  on the Routes page, and adding or removing their signing clears the dialplan cache of every domain instead of a
+  cache key that no domain uses.
+
 ## 1.0.1 (2026-11-07)
 
 - **Setup:** the Certificate Directory check finds why the web server cannot use the directory (it is missing, it has

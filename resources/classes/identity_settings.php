@@ -50,6 +50,7 @@ class identity_settings {
 		'certificate_url' => ['uuid' => '9ccd6f44-0f7d-4734-b1b8-4a322083cfc7', 'type' => 'text', 'default' => '', 'config' => 'identity.certificate_url'],
 		'allowed_cidr' => ['uuid' => 'b3566df4-e1ca-42a9-b194-6ec50edf7fbe', 'type' => 'text', 'default' => '127.0.0.1/32', 'config' => 'identity.allowed_cidr'],
 		'attestation_check' => ['uuid' => 'db68c2b5-672f-4c14-b211-99ca81b6a96a', 'type' => 'boolean', 'default' => 'true', 'config' => 'identity.attestation_check'],
+		'sign_all_routes' => ['uuid' => '609d8fbf-15e3-40b7-ae70-be47ff728d80', 'type' => 'boolean', 'default' => 'false', 'config' => 'identity.sign_all_routes'],
 		'debug' => ['uuid' => 'da8e8b9a-9e89-4f96-aa4c-820fdc1e7f36', 'type' => 'boolean', 'default' => 'false', 'config' => 'identity.debug'],
 		'database_retention_days' => ['uuid' => 'de87d56a-3e51-44e6-a074-7c6ed836fc81', 'type' => 'numeric', 'default' => '90', 'config' => 'identity.database_retention_days'],
 		'trust_list' => ['uuid' => 'fc775706-f3e0-49ba-92c0-4161ec7150bc', 'type' => 'text', 'default' => '', 'config' => 'identity.trust_list'],
@@ -155,6 +156,7 @@ class identity_settings {
 					$valid = ctype_digit($value) && strlen($value) <= 5;
 					break;
 				case 'attestation_check':
+				case 'sign_all_routes':
 				case 'debug':
 					$valid = in_array($value, ['true', 'false'], true);
 					break;

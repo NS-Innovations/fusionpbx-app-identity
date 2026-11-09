@@ -225,3 +225,8 @@ $identity_logs->add([
 
 // Delete the logs older than the retention period, at most once an hour, after the response was sent
 identity_logs::purge_if_due($database, (int)$identity_settings['database_retention_days'], (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
+
+// Add signing to the new outbound routes of every domain when Sign All Routes is on, at most once an hour
+if ($identity_settings['sign_all_routes'] && !is_cli()) {
+	identity_setup::sign_all_routes_if_due($database, (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
+}

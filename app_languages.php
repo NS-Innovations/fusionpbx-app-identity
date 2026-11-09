@@ -9,6 +9,9 @@ $text['title-identity_logs']['en-gb'] = "Identity Logs";
 $text['title-identity_setup']['en-us'] = "Identity Setup";
 $text['title-identity_setup']['en-gb'] = "Identity Setup";
 
+$text['title-identity_routes']['en-us'] = "Identity Routes";
+$text['title-identity_routes']['en-gb'] = "Identity Routes";
+
 $text['description-identity']['en-us'] = "STIR/SHAKEN signing of outbound calls and verification of inbound calls.";
 $text['description-identity']['en-gb'] = "STIR/SHAKEN signing of outbound calls and verification of inbound calls.";
 
@@ -65,6 +68,27 @@ $text['description-setting_attestation_check']['en-gb'] = "Full attestation (A) 
 
 $text['label-check_attestation']['en-us'] = "Attestation Check";
 $text['label-check_attestation']['en-gb'] = "Attestation Check";
+
+$text['label-setting_sign_all_routes']['en-us'] = "Sign All Routes";
+$text['label-setting_sign_all_routes']['en-gb'] = "Sign All Routes";
+
+$text['description-setting_sign_all_routes']['en-us'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when Setup or Routes is opened, or on upgrade. Routes that signing is removed from on the Routes page are excluded and stay unsigned until Add is clicked. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
+$text['description-setting_sign_all_routes']['en-gb'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when Setup or Routes is opened, or on upgrade. Routes that signing is removed from on the Routes page are excluded and stay unsigned until Add is clicked. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
+
+$text['label-check_sign_all_routes']['en-us'] = "Sign All Routes";
+$text['label-check_sign_all_routes']['en-gb'] = "Sign All Routes";
+
+$text['message-sign_all_skipped']['en-us'] = "Routes that cannot be signed automatically because the destination was not found in the bridge, check the destination and click Add:";
+$text['message-sign_all_skipped']['en-gb'] = "Routes that cannot be signed automatically because the destination was not found in the bridge, check the destination and click Add:";
+
+$text['message-sign_all_failed']['en-us'] = "Sign All Routes could not add signing to routes:";
+$text['message-sign_all_failed']['en-gb'] = "Sign All Routes could not add signing to routes:";
+
+$text['label-routes_excluded']['en-us'] = "routes excluded";
+$text['label-routes_excluded']['en-gb'] = "routes excluded";
+
+$text['label-excluded']['en-us'] = "Excluded";
+$text['label-excluded']['en-gb'] = "Excluded";
 
 $text['message-attestation_check_on']['en-us'] = "Calls are signed with A only from numbers that are inbound destinations of the domain.";
 $text['message-attestation_check_on']['en-gb'] = "Calls are signed with A only from numbers that are inbound destinations of the domain.";
@@ -177,8 +201,29 @@ $text['description-test']['en-gb'] = "Signs a call with the private key, then ve
 $text['header-outbound']['en-us'] = "Outbound Routes";
 $text['header-outbound']['en-gb'] = "Outbound Routes";
 
-$text['description-outbound']['en-us'] = "Adding signing inserts the actions that request a SIP Identity header from sign.php before the first bridge of the route. The destination is the number sent to the carrier, usually the same as the end of the bridge, such as 1\$1 or \$1.";
-$text['description-outbound']['en-gb'] = "Adding signing inserts the actions that request a SIP Identity header from sign.php before the first bridge of the route. The destination is the number sent to the carrier, usually the same as the end of the bridge, such as 1\$1 or \$1.";
+$text['description-outbound']['en-us'] = "Signing is added to and removed from the outbound routes on the Routes page, which lists them with paging, search and a filter by signing. Turn on Sign All Routes in the settings to sign the routes of every domain automatically.";
+$text['description-outbound']['en-gb'] = "Signing is added to and removed from the outbound routes on the Routes page, which lists them with paging, search and a filter by signing. Turn on Sign All Routes in the settings to sign the routes of every domain automatically.";
+
+$text['description-identity_routes']['en-us'] = "Adding signing inserts the actions that request a SIP Identity header from sign.php before the first bridge of the route. The destination is the number sent to the carrier, usually the same as the end of the bridge, such as 1\$1 or \$1. Check routes to add or remove signing on several at once.";
+$text['description-identity_routes']['en-gb'] = "Adding signing inserts the actions that request a SIP Identity header from sign.php before the first bridge of the route. The destination is the number sent to the carrier, usually the same as the end of the bridge, such as 1\$1 or \$1. Check routes to add or remove signing on several at once.";
+
+$text['option-unsigned']['en-us'] = "Not Signed";
+$text['option-unsigned']['en-gb'] = "Not Signed";
+
+$text['option-excluded']['en-us'] = "Excluded";
+$text['option-excluded']['en-gb'] = "Excluded";
+
+$text['confirm-remove_signing_checked']['en-us'] = "Remove signing from the checked routes?";
+$text['confirm-remove_signing_checked']['en-gb'] = "Remove signing from the checked routes?";
+
+$text['message-signing_removed_all']['en-us'] = "Signing removed from routes:";
+$text['message-signing_removed_all']['en-gb'] = "Signing removed from routes:";
+
+$text['message-signing_remove_failed_all']['en-us'] = "Signing could not be removed from routes, they were not found in this domain or do not sign calls:";
+$text['message-signing_remove_failed_all']['en-gb'] = "Signing could not be removed from routes, they were not found in this domain or do not sign calls:";
+
+$text['message-signing_skipped_all']['en-us'] = "Routes not signed because the destination was not found in the bridge, set the destination and click Add:";
+$text['message-signing_skipped_all']['en-gb'] = "Routes not signed because the destination was not found in the bridge, set the destination and click Add:";
 
 $text['header-inbound']['en-us'] = "Inbound Verification";
 $text['header-inbound']['en-gb'] = "Inbound Verification";
@@ -189,6 +234,9 @@ $text['description-inbound']['en-gb'] = "Adds a global dialplan in the public co
 $text['button-logs']['en-us'] = "Logs";
 $text['button-logs']['en-gb'] = "Logs";
 
+$text['button-routes']['en-us'] = "Routes";
+$text['button-routes']['en-gb'] = "Routes";
+
 $text['button-test']['en-us'] = "Test";
 $text['button-test']['en-gb'] = "Test";
 
@@ -198,8 +246,8 @@ $text['button-generate_certificate']['en-gb'] = "Generate Test Certificate";
 $text['button-add_all']['en-us'] = "Add All";
 $text['button-add_all']['en-gb'] = "Add All";
 
-$text['confirm-add_signing_all']['en-us'] = "Add signing to every route listed that is not signed, using the destination and attestation shown for each?";
-$text['confirm-add_signing_all']['en-gb'] = "Add signing to every route listed that is not signed, using the destination and attestation shown for each?";
+$text['confirm-add_signing_all']['en-us'] = "Add signing to every route that is not signed and matches the search, on every page? Routes on this page use the destination and attestation shown, routes on other pages use the destination from the bridge and attestation A.";
+$text['confirm-add_signing_all']['en-gb'] = "Add signing to every route that is not signed and matches the search, on every page? Routes on this page use the destination and attestation shown, routes on other pages use the destination from the bridge and attestation A.";
 
 $text['confirm-import']['en-us'] = "Replace the private key or certificate in use? The current files are kept as a .bak copy.";
 $text['confirm-import']['en-gb'] = "Replace the private key or certificate in use? The current files are kept as a .bak copy.";
@@ -303,8 +351,8 @@ $text['label-status_warning']['en-gb'] = "Warning";
 $text['label-status_error']['en-us'] = "Error";
 $text['label-status_error']['en-gb'] = "Error";
 
-$text['label-check_logs']['en-us'] = "Log Table";
-$text['label-check_logs']['en-gb'] = "Log Table";
+$text['label-check_logs']['en-us'] = "Database Tables";
+$text['label-check_logs']['en-gb'] = "Database Tables";
 
 $text['label-check_path']['en-us'] = "Certificate Directory";
 $text['label-check_path']['en-gb'] = "Certificate Directory";
@@ -387,8 +435,8 @@ $text['option-period_week']['en-gb'] = "Last 7 Days";
 $text['option-period_month']['en-us'] = "Last 30 Days";
 $text['option-period_month']['en-gb'] = "Last 30 Days";
 
-$text['message-run_upgrade']['en-us'] = "The v_identity_logs table does not exist. Run Advanced > Upgrade > Schema or php core/upgrade/upgrade.php.";
-$text['message-run_upgrade']['en-gb'] = "The v_identity_logs table does not exist. Run Advanced > Upgrade > Schema or php core/upgrade/upgrade.php.";
+$text['message-run_upgrade']['en-us'] = "The v_identity_logs or v_identity_route_exclusions table does not exist. Run Advanced > Upgrade > Schema or php core/upgrade/upgrade.php.";
+$text['message-run_upgrade']['en-gb'] = "The v_identity_logs or v_identity_route_exclusions table does not exist. Run Advanced > Upgrade > Schema or php core/upgrade/upgrade.php.";
 
 $text['message-path_missing']['en-us'] = "The certificate directory does not exist, and the web server cannot create it. Create it by running this as root, then click Refresh:";
 $text['message-path_missing']['en-gb'] = "The certificate directory does not exist, and the web server cannot create it. Create it by running this as root, then click Refresh:";
@@ -507,12 +555,6 @@ $text['message-certificate_generated']['en-gb'] = "Test certificate generated.";
 $text['message-certificate_failed']['en-us'] = "The test certificate could not be generated.";
 $text['message-certificate_failed']['en-gb'] = "The test certificate could not be generated.";
 
-$text['message-signing_added']['en-us'] = "Signing added to the route.";
-$text['message-signing_added']['en-gb'] = "Signing added to the route.";
-
-$text['message-signing_failed']['en-us'] = "Signing could not be added. The route must have a bridge and the destination must look like 1\$1 or \$1.";
-$text['message-signing_failed']['en-gb'] = "Signing could not be added. The route must have a bridge and the destination must look like 1\$1 or \$1.";
-
 $text['message-signing_added_all']['en-us'] = "Signing added to routes:";
 $text['message-signing_added_all']['en-gb'] = "Signing added to routes:";
 
@@ -552,14 +594,8 @@ $text['message-import_mismatch']['en-gb'] = "The private key does not belong to 
 $text['message-import_write']['en-us'] = "The files could not be written to the certificate directory.";
 $text['message-import_write']['en-gb'] = "The files could not be written to the certificate directory.";
 
-$text['message-signing_removed']['en-us'] = "Signing removed from the route.";
-$text['message-signing_removed']['en-gb'] = "Signing removed from the route.";
-
 $text['message-platform_permission']['en-us'] = "The settings, certificates, test and inbound verification apply to the whole platform and need the identity_setup_all permission.";
 $text['message-platform_permission']['en-gb'] = "The settings, certificates, test and inbound verification apply to the whole platform and need the identity_setup_all permission.";
-
-$text['message-signing_remove_failed']['en-us'] = "Signing could not be removed. The route was not found in this domain or does not sign calls.";
-$text['message-signing_remove_failed']['en-gb'] = "Signing could not be removed. The route was not found in this domain or does not sign calls.";
 
 $text['message-verify_added']['en-us'] = "Inbound verification added.";
 $text['message-verify_added']['en-gb'] = "Inbound verification added.";
