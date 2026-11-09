@@ -75,9 +75,21 @@ class identity_setup {
 	const sign_all_interval = 3600;
 
 	/**
-	 * PostgreSQL advisory lock key held while sign_all_routes() runs, so two runs cannot add signing to the same route.
+	 * PostgreSQL advisory lock key held while sign_all_routes() runs, so only one run works at a time.
 	 */
 	const sign_all_lock = 2188028328;
+
+	/**
+	 * First key of the PostgreSQL advisory lock held on one route while signing is added to or removed from it, the
+	 * second key is the hash of the route's dialplan UUID. The two key form does not overlap the single key form.
+	 */
+	const route_lock = 826;
+
+	/**
+	 * Seconds a run of sign_all_routes() started from the web server may take before it stops and leaves the rest
+	 * for the next run, so a first run on a server with many routes is not cut off by max_execution_time.
+	 */
+	const sign_all_time_limit = 20;
 
 	/**
 	 * Parameters of the verification request that give verify.php the calling and called numbers of the call, which
@@ -109,6 +121,13 @@ class identity_setup {
 	 * @var string
 	 */
 	private $domain_uuid;
+
+	/**
+	 * Whether the v_identity_route_exclusions table exists, checked once per object. It is added by the upgrade.
+	 *
+	 * @var bool|null
+	 */
+	private $exclusions_table = null;
 
 	/**
 	 * Initializes the object with setting array.
@@ -584,12 +603,16 @@ class identity_setup {
 	/**
 	 * Count the outbound routes by signing status, for the checks and the overview.
 	 *
-	 * @param bool $all Count the routes of all domains, and the global routes, instead of the current domain
+	 * Counting the skipped routes reads the actions of every route that is not signed and not excluded, which with
+	 * Sign All Routes on are only the routes it could not sign, so it is only done when asked for.
+	 *
+	 * @param bool $all           Count the routes of all domains, and the global routes, instead of the current domain
+	 * @param bool $count_skipped Also count the skipped routes
 	 *
 	 * @return array Counts with keys: total, signed, excluded (not signed and excluded from Sign All Routes), skipped
-	 *               (not signed, not excluded, and the destination cannot be taken from the bridge)
+	 *               (not signed, not excluded, and the destination cannot be taken from the bridge, 0 unless counted)
 	 */
-	public function outbound_route_counts(bool $all = false): array {
+	public function outbound_route_counts(bool $all = false, bool $count_skipped = false): array {
 		$columns = $this->route_columns();
 		$sql = "select count(*) as total, ";
 		$sql .= "count(*) filter (where r.signed) as signed, ";
@@ -606,7 +629,7 @@ class identity_setup {
 		$counts['signed'] = (int)($row['signed'] ?? 0);
 		$counts['excluded'] = (int)($row['excluded'] ?? 0);
 		$counts['skipped'] = 0;
-		if ($counts['total'] > $counts['signed'] + $counts['excluded']) {
+		if ($count_skipped && $counts['total'] > $counts['signed'] + $counts['excluded']) {
 			foreach ($this->outbound_routes($all, ['status' => 'unsigned']) as $route) {
 				if (!$route['destination_found']) {
 					$counts['skipped']++;
@@ -623,7 +646,7 @@ class identity_setup {
 	 */
 	private function route_columns(): array {
 		$columns['signed'] = "exists (select 1 from v_dialplan_details as s where s.dialplan_uuid = d.dialplan_uuid and s.dialplan_detail_tag = 'action' and s.dialplan_detail_type = 'curl' and s.dialplan_detail_data like '%/app/identity/sign.php%')";
-		if ($this->database->table_exists('v_identity_route_exclusions')) {
+		if ($this->has_exclusions_table()) {
 			$columns['excluded'] = "exists (select 1 from v_identity_route_exclusions as e where e.dialplan_uuid = d.dialplan_uuid)";
 		}
 		else {
@@ -699,7 +722,8 @@ class identity_setup {
 	 *
 	 * Inserts the actions that request a SIP Identity header from sign.php before the first bridge, renumbers the
 	 * actions of that condition group, then rebuilds the dialplan XML. Removes the route's exclusion, so Sign All
-	 * Routes keeps it signed.
+	 * Routes keeps it signed. Holds the route's lock, so it cannot run at the same time as another change to the
+	 * route's signing.
 	 *
 	 * @param string $dialplan_uuid Outbound route dialplan UUID
 	 * @param string $destination   Destination expression such as 1$1
@@ -709,6 +733,29 @@ class identity_setup {
 	 * @return bool True if signing was added
 	 */
 	public function add_signing(string $dialplan_uuid, string $destination, string $attest_level, bool $all = false): bool {
+		if (!is_uuid($dialplan_uuid)) {
+			return false;
+		}
+		$this->lock_route($dialplan_uuid);
+		try {
+			return $this->add_signing_locked($dialplan_uuid, $destination, $attest_level, $all);
+		}
+		finally {
+			$this->unlock_route($dialplan_uuid);
+		}
+	}
+
+	/**
+	 * Add signing to an outbound route while its lock is held, see add_signing().
+	 *
+	 * @param string $dialplan_uuid Outbound route dialplan UUID
+	 * @param string $destination   Destination expression such as 1$1
+	 * @param string $attest_level  Attestation level A, B, or C
+	 * @param bool   $all           Allow a route of any domain instead of only the current domain
+	 *
+	 * @return bool True if signing was added
+	 */
+	private function add_signing_locked(string $dialplan_uuid, string $destination, string $attest_level, bool $all): bool {
 		//validate the values
 		if (!is_uuid($dialplan_uuid) || !preg_match('/^\+?[0-9]*\$[0-9]$/', $destination) || !in_array($attest_level, ['A', 'B', 'C'], true)) {
 			return false;
@@ -811,7 +858,8 @@ class identity_setup {
 	 * Remove signing from an outbound route.
 	 *
 	 * Deletes the actions added by add_signing() and rebuilds the dialplan XML. The route is excluded from Sign All
-	 * Routes, so it is not signed again.
+	 * Routes first, so a run of Sign All Routes never sees it unsigned and not excluded. Holds the route's lock, so it
+	 * cannot run at the same time as another change to the route's signing.
 	 *
 	 * @param string $dialplan_uuid Outbound route dialplan UUID
 	 * @param bool   $all           Allow a route of any domain instead of only the current domain
@@ -819,8 +867,29 @@ class identity_setup {
 	 * @return bool True if signing was removed
 	 */
 	public function remove_signing(string $dialplan_uuid, bool $all = false): bool {
+		if (!is_uuid($dialplan_uuid)) {
+			return false;
+		}
+		$this->lock_route($dialplan_uuid);
+		try {
+			return $this->remove_signing_locked($dialplan_uuid, $all);
+		}
+		finally {
+			$this->unlock_route($dialplan_uuid);
+		}
+	}
+
+	/**
+	 * Remove signing from an outbound route while its lock is held, see remove_signing().
+	 *
+	 * @param string $dialplan_uuid Outbound route dialplan UUID
+	 * @param bool   $all           Allow a route of any domain instead of only the current domain
+	 *
+	 * @return bool True if signing was removed
+	 */
+	private function remove_signing_locked(string $dialplan_uuid, bool $all): bool {
 		//get the route
-		$route = is_uuid($dialplan_uuid) ? $this->route($dialplan_uuid, $all) : [];
+		$route = $this->route($dialplan_uuid, $all);
 		if (empty($route)) {
 			return false;
 		}
@@ -847,6 +916,9 @@ class identity_setup {
 			return false;
 		}
 
+		//keep sign all routes from signing the route again, before the actions are deleted
+		$this->exclude_route($dialplan_uuid, (string)$route['domain_uuid']);
+
 		//delete the actions
 		foreach ($rows as $x => $row) {
 			$array['dialplan_details'][$x]['dialplan_detail_uuid'] = $row['dialplan_detail_uuid'];
@@ -861,14 +933,11 @@ class identity_setup {
 		//rebuild the dialplan xml and clear the cache
 		$this->update_dialplan($dialplan_uuid, $route['dialplan_context']);
 
-		//keep sign all routes from signing the route again
-		$this->exclude_route($dialplan_uuid, (string)$route['domain_uuid']);
-
 		return true;
 	}
 
 	/**
-	 * Add signing to the checked routes of a list.
+	 * Add signing to the checked routes of a list. Checked routes that already sign are left as they are.
 	 *
 	 * @param array $routes Rows posted by the routes list, each with keys: checked, uuid, destination, attest_level
 	 * @param bool  $all    Allow the routes of any domain, and global routes, instead of only the current domain
@@ -879,6 +948,9 @@ class identity_setup {
 		$result = ['added' => 0, 'failed' => 0];
 		foreach ($routes as $route) {
 			if (!is_array($route) || ($route['checked'] ?? '') !== 'true' || !is_uuid($route['uuid'] ?? '')) {
+				continue;
+			}
+			if ($this->route_signs($route['uuid'])) {
 				continue;
 			}
 			$destination = is_string($route['destination'] ?? null) ? trim($route['destination']) : '';
@@ -894,7 +966,8 @@ class identity_setup {
 	}
 
 	/**
-	 * Remove signing from the checked routes of a list, which excludes them from Sign All Routes.
+	 * Remove signing from the checked routes of a list, which excludes them from Sign All Routes. Checked routes that
+	 * do not sign are left as they are.
 	 *
 	 * @param array $routes Rows posted by the routes list, each with keys: checked, uuid
 	 * @param bool  $all    Allow the routes of any domain, and global routes, instead of only the current domain
@@ -905,6 +978,9 @@ class identity_setup {
 		$result = ['removed' => 0, 'failed' => 0];
 		foreach ($routes as $route) {
 			if (!is_array($route) || ($route['checked'] ?? '') !== 'true' || !is_uuid($route['uuid'] ?? '')) {
+				continue;
+			}
+			if (!$this->route_signs($route['uuid'])) {
 				continue;
 			}
 			if ($this->remove_signing($route['uuid'], $all)) {
@@ -975,16 +1051,21 @@ class identity_setup {
 	 *
 	 * Uses the destination taken from the first bridge and attestation A, which the attestation check lowers to B
 	 * when the domain does not own the calling number. Skips the routes that signing was removed from (excluded) and
-	 * the routes whose destination cannot be taken from the bridge, which must be added in Setup. Removes the
-	 * exclusions of routes that were deleted. Only one run at a time, others return without doing anything.
+	 * the routes whose destination cannot be taken from the bridge, which must be added on the Routes page. Removes
+	 * the exclusions of routes that were deleted. Only one run at a time, others return without doing anything. Each
+	 * route is checked again while its lock is held, so a route that signing was just removed from is not signed again.
 	 *
-	 * @return array Counts with keys: added, failed, skipped (destination not found)
+	 * @param int $time_limit Seconds the run may take before it stops and counts the routes left as remaining, 0 for
+	 *                        no limit
+	 *
+	 * @return array Counts with keys: added, failed, skipped (destination not found), remaining (not reached before
+	 *               the time limit)
 	 */
-	public function sign_all_routes(): array {
-		$result = ['added' => 0, 'failed' => 0, 'skipped' => 0];
+	public function sign_all_routes(int $time_limit = 0): array {
+		$result = ['added' => 0, 'failed' => 0, 'skipped' => 0, 'remaining' => 0];
 
 		//the exclusions table is added by the upgrade, without it removed routes would be signed again
-		if (!$this->database->table_exists('v_identity_route_exclusions')) {
+		if (!$this->has_exclusions_table()) {
 			return $result;
 		}
 
@@ -1002,16 +1083,33 @@ class identity_setup {
 			$this->purge_exclusions();
 
 			//sign each route that does not sign yet
-			foreach ($this->outbound_routes(true, ['status' => 'unsigned']) as $route) {
+			$start = microtime(true);
+			$routes = $this->outbound_routes(true, ['status' => 'unsigned']);
+			foreach ($routes as $i => $route) {
+				if ($time_limit > 0 && microtime(true) - $start > $time_limit) {
+					$result['remaining'] = count($routes) - $i;
+					break;
+				}
 				if (!$route['destination_found']) {
 					$result['skipped']++;
 					continue;
 				}
-				if ($this->add_signing($route['dialplan_uuid'], $route['destination'], $route['attest_level'], true)) {
-					$result['added']++;
+				$uuid = $route['dialplan_uuid'];
+				$this->lock_route($uuid);
+				try {
+					//signing may have been added or removed since the list was read
+					if ($this->route_signs($uuid) || $this->is_excluded($uuid)) {
+						continue;
+					}
+					if ($this->add_signing_locked($uuid, $route['destination'], $route['attest_level'], true)) {
+						$result['added']++;
+					}
+					else {
+						$result['failed']++;
+					}
 				}
-				else {
-					$result['failed']++;
+				finally {
+					$this->unlock_route($uuid);
 				}
 			}
 		}
@@ -1027,31 +1125,30 @@ class identity_setup {
 	}
 
 	/**
-	 * Run sign_all_routes() at most once per sign_all_interval.
+	 * Run sign_all_routes() at most once per sign_all_interval, limited to sign_all_time_limit seconds.
 	 *
-	 * sign.php and verify.php call this after the response was sent, so new outbound routes are signed within an hour
-	 * without a cron job. The time of the last run is kept in a file in the FusionPBX cache directory, one file per
-	 * system user, the same way as identity_logs::purge_if_due(). A time in the future (the clock went back) counts as
-	 * due. When the file cannot be written nothing runs, and the routes are signed when Setup is opened or on upgrade.
+	 * sign.php and verify.php call this after the response was sent, and Setup and the Routes page call it for
+	 * platform administrators, so new outbound routes are signed within an hour without a cron job. The time of the
+	 * last run is kept in identity_sign_all_routes_<uid> in the FusionPBX cache directory (see
+	 * identity_schedule::due()). When the file cannot be written nothing runs, and the routes are signed when the
+	 * setting is saved or on upgrade. A run that stops at the time limit makes the next one due at once.
 	 *
 	 * @param database $database   Database object
 	 * @param string   $cache_path Directory for the time of the last run, the cache location setting
+	 * @param bool     $force      Run even if it is not due, such as when the setting was just turned on
 	 *
-	 * @return array|null Counts from sign_all_routes(), or null if it was not due
+	 * @return array|null Counts from sign_all_routes(), or null if it did not run
 	 */
-	public static function sign_all_routes_if_due(database $database, string $cache_path = '/var/cache/fusionpbx'): ?array {
-		$user = function_exists('posix_geteuid') ? (string)posix_geteuid() : preg_replace('/[^a-z0-9_-]/i', '', get_current_user());
-		$stamp = rtrim($cache_path, '/').'/identity_sign_all_routes_'.$user;
-		$last = @filemtime($stamp);
-		$age = $last === false ? PHP_INT_MAX : time() - $last;
-		if ($age >= 0 && $age < self::sign_all_interval) {
-			return null;
-		}
-		if (!@touch($stamp)) {
+	public static function sign_all_routes_if_due(database $database, string $cache_path = '/var/cache/fusionpbx', bool $force = false): ?array {
+		$due = identity_schedule::due('identity_sign_all_routes', self::sign_all_interval, $cache_path);
+		if (!$force && $due !== true) {
 			return null;
 		}
 		$setup = new identity_setup(['database' => $database, 'domain_uuid' => '']);
-		$result = $setup->sign_all_routes();
+		$result = $setup->sign_all_routes(self::sign_all_time_limit);
+		if ($result['remaining'] > 0) {
+			identity_schedule::reset('identity_sign_all_routes', self::sign_all_interval, $cache_path);
+		}
 		if ($result['failed'] > 0) {
 			error_log('identity: Sign All Routes could not add signing to '.$result['failed'].' outbound route(s)');
 		}
@@ -1059,21 +1156,106 @@ class identity_setup {
 	}
 
 	/**
-	 * Get the outbound routes excluded from Sign All Routes.
+	 * Show the result of a run of Sign All Routes as messages.
 	 *
-	 * @return array Dialplan UUIDs as keys, or an empty array if there are none or the upgrade has not added the table
+	 * @param array|null $result Counts from sign_all_routes(), or null if it did not run
+	 * @param array      $text   Translations of the page
+	 *
+	 * @return void
 	 */
-	private function exclusions(): array {
-		$sql = "select dialplan_uuid from v_identity_route_exclusions ";
-		$rows = $this->database->select($sql, null, 'all');
-		unset($sql);
-		$exclusions = [];
-		if (is_array($rows)) {
-			foreach ($rows as $row) {
-				$exclusions[$row['dialplan_uuid']] = true;
-			}
+	public static function sign_all_messages(?array $result, array $text) {
+		if (empty($result)) {
+			return;
 		}
-		return $exclusions;
+		if ($result['added'] > 0) {
+			message::add($text['message-signing_added_all'].' '.$result['added']);
+		}
+		if ($result['failed'] > 0) {
+			message::add($text['message-sign_all_failed'].' '.$result['failed'], 'negative', 5000);
+		}
+		if ($result['remaining'] > 0) {
+			message::add($text['message-sign_all_remaining'].' '.$result['remaining'], 'alert', 5000);
+		}
+	}
+
+	/**
+	 * Check whether the exclusions table exists, once per object. It is added by the upgrade.
+	 *
+	 * @return bool True if v_identity_route_exclusions exists
+	 */
+	private function has_exclusions_table(): bool {
+		if ($this->exclusions_table === null) {
+			$this->exclusions_table = (bool)$this->database->table_exists('v_identity_route_exclusions');
+		}
+		return $this->exclusions_table;
+	}
+
+	/**
+	 * Take the advisory lock of a route, waiting while another change to its signing holds it. The lock belongs to
+	 * the database connection, so it is released if the request ends without unlock_route().
+	 *
+	 * @param string $dialplan_uuid Outbound route dialplan UUID
+	 *
+	 * @return void
+	 */
+	private function lock_route(string $dialplan_uuid) {
+		$sql = "select pg_advisory_lock(".self::route_lock.", hashtext(:dialplan_uuid)) ";
+		$parameters['dialplan_uuid'] = $dialplan_uuid;
+		$this->database->select($sql, $parameters, 'column');
+		unset($sql, $parameters);
+	}
+
+	/**
+	 * Release the advisory lock of a route taken by lock_route().
+	 *
+	 * @param string $dialplan_uuid Outbound route dialplan UUID
+	 *
+	 * @return void
+	 */
+	private function unlock_route(string $dialplan_uuid) {
+		$sql = "select pg_advisory_unlock(".self::route_lock.", hashtext(:dialplan_uuid)) ";
+		$parameters['dialplan_uuid'] = $dialplan_uuid;
+		$this->database->select($sql, $parameters, 'column');
+		unset($sql, $parameters);
+	}
+
+	/**
+	 * Check whether a route has a signing action.
+	 *
+	 * @param string $dialplan_uuid Outbound route dialplan UUID
+	 *
+	 * @return bool True if the route signs calls
+	 */
+	private function route_signs(string $dialplan_uuid): bool {
+		$sql = "select count(*) from v_dialplan_details ";
+		$sql .= "where dialplan_uuid = :dialplan_uuid ";
+		$sql .= "and dialplan_detail_tag = 'action' ";
+		$sql .= "and dialplan_detail_type = 'curl' ";
+		$sql .= "and dialplan_detail_data like :sign_url ";
+		$parameters['dialplan_uuid'] = $dialplan_uuid;
+		$parameters['sign_url'] = '%/app/identity/sign.php%';
+		$count = $this->database->select($sql, $parameters, 'column');
+		unset($sql, $parameters);
+		return (int)$count > 0;
+	}
+
+	/**
+	 * Check whether a route is excluded from Sign All Routes.
+	 *
+	 * @param string $dialplan_uuid Outbound route dialplan UUID
+	 *
+	 * @return bool True if the route is excluded, false if not or the upgrade has not added the table
+	 */
+	private function is_excluded(string $dialplan_uuid): bool {
+		if (!$this->has_exclusions_table()) {
+			return false;
+		}
+		$sql = "select count(*) from v_identity_route_exclusions ";
+		$sql .= "where dialplan_uuid = :dialplan_uuid ";
+		$parameters['dialplan_uuid'] = $dialplan_uuid;
+		$count = $this->database->select($sql, $parameters, 'column');
+		unset($sql, $parameters);
+		return (int)$count > 0;
 	}
 
 	/**
@@ -1085,7 +1267,7 @@ class identity_setup {
 	 * @return void
 	 */
 	private function exclude_route(string $dialplan_uuid, string $domain_uuid) {
-		if (isset($this->exclusions()[$dialplan_uuid])) {
+		if (!$this->has_exclusions_table() || $this->is_excluded($dialplan_uuid)) {
 			return;
 		}
 		$array['identity_route_exclusions'][0]['identity_route_exclusion_uuid'] = uuid();
@@ -1106,7 +1288,7 @@ class identity_setup {
 	 * @return void
 	 */
 	private function include_route(string $dialplan_uuid) {
-		if (!isset($this->exclusions()[$dialplan_uuid])) {
+		if (!$this->is_excluded($dialplan_uuid)) {
 			return;
 		}
 		$array['identity_route_exclusions'][0]['dialplan_uuid'] = $dialplan_uuid;

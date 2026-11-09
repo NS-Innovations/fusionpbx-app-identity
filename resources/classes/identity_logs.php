@@ -216,10 +216,9 @@ class identity_logs {
 	 * Delete the logs older than the retention period, at most once per purge_interval.
 	 *
 	 * sign.php and verify.php call this after the response was sent, so the maintenance app is not needed. The time of
-	 * the last purge is kept in a file in the FusionPBX cache directory, which only the web server user can write, one
-	 * file per system user so a file left by the command line (root) never stops the web server from purging. A time
-	 * in the future (the clock went back) counts as due. When the file cannot be written, the purge runs on about one
-	 * call in purge_fallback_chance instead, so the logs are still limited and the error is logged now and then.
+	 * the last purge is kept in identity_logs_purge_<uid> in the FusionPBX cache directory (see identity_schedule::due()).
+	 * When the file cannot be written, the purge runs on about one call in purge_fallback_chance instead, so the logs
+	 * are still limited and the error is logged now and then.
 	 *
 	 * @param database $database       Database object
 	 * @param int      $retention_days Days to keep the logs, 0 keeps them forever
@@ -231,18 +230,15 @@ class identity_logs {
 		if ($retention_days <= 0) {
 			return false;
 		}
-		$user = function_exists('posix_geteuid') ? (string)posix_geteuid() : preg_replace('/[^a-z0-9_-]/i', '', get_current_user());
-		$stamp = rtrim($cache_path, '/').'/identity_logs_purge_'.$user;
-		$last = @filemtime($stamp);
-		$age = $last === false ? PHP_INT_MAX : time() - $last;
-		if ($age >= 0 && $age < self::purge_interval) {
+		$due = identity_schedule::due('identity_logs_purge', self::purge_interval, $cache_path);
+		if ($due === false) {
 			return false;
 		}
-		if (!@touch($stamp)) {
+		if ($due === null) {
 			if (random_int(1, self::purge_fallback_chance) !== 1) {
 				return false;
 			}
-			error_log('identity: cannot write '.$stamp.', the identity logs are purged on about one call in '.self::purge_fallback_chance);
+			error_log('identity: cannot write identity_logs_purge in '.$cache_path.', the identity logs are purged on about one call in '.self::purge_fallback_chance);
 		}
 		return self::purge($database, $retention_days);
 	}

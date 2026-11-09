@@ -208,17 +208,26 @@ yet, including global routes, so new routes do not need to be added one at a tim
 The routes are signed:
 
 - when the setting is saved in Setup
-- when Setup or the Routes page is opened
-- at most once an hour after a call is signed or verified, so a new route is signed within an hour without a cron job
-  (the time of the last run is kept in `identity_sign_all_routes_<uid>` in the FusionPBX cache directory)
+- at most once an hour after a call is signed or verified, or when a user with `identity_setup_all` opens Setup or
+  the Routes page, so a new route is signed within an hour without a cron job (the time of the last run is kept in
+  `identity_sign_all_routes_<uid>` in the FusionPBX cache directory). Users without `identity_setup_all` never start a
+  run, since it changes the routes of every domain
 - on upgrade
 
-Only one run happens at a time (a PostgreSQL advisory lock), so two runs cannot add signing to the same route twice.
+A run started from the web server stops after 20 seconds, so turning the setting on for thousands of routes is not
+cut off by PHP's `max_execution_time`. It reports how many routes are left and makes the next run due at once, so the
+rest are signed by the next calls or page views. The upgrade has no time limit. Only one run happens at a time (a
+PostgreSQL advisory lock), and each route is locked while signing is added to or removed from it, so a run cannot
+sign a route again while **Remove** is taking signing off it, or add signing twice while **Add** is adding it.
 
 **Remove** excludes a route: it stays unsigned and is shown as **Excluded** while the setting is on. Click **Add** on
 the route to sign it again, which removes the exclusion. **Add All** leaves excluded routes alone. Exclusions are kept
 in the `v_identity_route_exclusions` table, created by the upgrade, and are deleted with their route. Until the
 upgrade has created the table nothing is signed automatically.
+
+Only **Remove** on the Routes page excludes a route. Signing taken off any other way, such as by deleting the actions
+in the dialplan editor, leaves the route unsigned and not excluded, so Sign All Routes adds signing back within the
+hour. To keep a route unsigned, use **Remove**.
 
 A route whose destination cannot be taken from the bridge, such as a bridge to `user/1000@domain`, is not signed,
 because it would only be guessing `$1`. The checks in Setup count them; set the destination of each on the Routes page

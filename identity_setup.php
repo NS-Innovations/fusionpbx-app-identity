@@ -101,14 +101,7 @@
 
 						//sign the routes of every domain now rather than within the hour
 						if ($values['sign_all_routes'] == 'true') {
-							$sign_all = $setup->sign_all_routes();
-							if ($sign_all['added'] > 0) {
-								message::add($text['message-signing_added_all'].' '.$sign_all['added']);
-							}
-							if ($sign_all['failed'] > 0) {
-								message::add($text['message-sign_all_failed'].' '.$sign_all['failed'], 'negative', 5000);
-							}
-							unset($sign_all);
+							identity_setup::sign_all_messages(identity_setup::sign_all_routes_if_due($database, $identity_settings['cache_path'], true), $text);
 						}
 					}
 					else {
@@ -285,20 +278,13 @@
 //check the allowed cidr
 	$cidr_invalid = identity_settings::invalid_cidr($identity_settings['allowed_cidr']);
 
-//sign the new routes of every domain, so the checks are current
-	if ($identity_settings['sign_all_routes']) {
-		$sign_all = $setup->sign_all_routes();
-		if ($sign_all['added'] > 0) {
-			message::add($text['message-signing_added_all'].' '.$sign_all['added']);
-		}
-		if ($sign_all['failed'] > 0) {
-			message::add($text['message-sign_all_failed'].' '.$sign_all['failed'], 'negative', 5000);
-		}
-		unset($sign_all);
+//sign the new routes of every domain when it is due, only for platform administrators since it changes every domain
+	if ($identity_settings['sign_all_routes'] && $platform) {
+		identity_setup::sign_all_messages(identity_setup::sign_all_routes_if_due($database, $identity_settings['cache_path']), $text);
 	}
 
 //count the routes, of every domain for platform administrators, and get the inbound dialplan
-	$route_counts = $setup->outbound_route_counts($platform);
+	$route_counts = $setup->outbound_route_counts($platform, $identity_settings['sign_all_routes']);
 	$verify_dialplan = $setup->verify_dialplan();
 
 //build the checks, each one is: label, status (ok, warning, error), details

@@ -2,11 +2,12 @@
 
 ## Unreleased
 
-- **Sign All Routes:** a new setting that adds signing to the outbound routes of every domain, including global
-  routes and routes added later. Routes are signed when the setting is saved, when Setup or Routes is opened, at most once an
-  hour after a call is signed or verified, and on upgrade. **Remove** excludes a route so it is not signed again, and
-  **Add** includes it again. Routes whose destination cannot be found in the bridge are skipped and counted in the
-  checks. Needs the upgrade, which adds the `v_identity_route_exclusions` table.
+- **Sign All Routes:** a new setting that adds signing to the outbound routes of every domain, including global routes
+  and routes added later. Routes are signed when the setting is saved, at most once an hour after a call is signed or
+  verified or when a platform administrator opens Setup or Routes, and on upgrade. A run from the web server stops after
+  20 seconds and continues on the next one; routes are locked while signing is added or removed. **Remove** excludes a
+  route so it is not signed again, and **Add** includes it again. Routes whose destination cannot be found in the bridge
+  are skipped and counted in the checks. Needs the upgrade, which adds the `v_identity_route_exclusions` table.
 - **Routes page:** the outbound routes moved from Setup to their own page, so Setup stays short on servers with many
   routes. The list is paged, searchable by route or domain name, filterable by signing and sortable, and routes can be
   checked to add or remove signing on several at once. **Add All** works across every page that matches the search.

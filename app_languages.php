@@ -72,8 +72,8 @@ $text['label-check_attestation']['en-gb'] = "Attestation Check";
 $text['label-setting_sign_all_routes']['en-us'] = "Sign All Routes";
 $text['label-setting_sign_all_routes']['en-gb'] = "Sign All Routes";
 
-$text['description-setting_sign_all_routes']['en-us'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when Setup or Routes is opened, or on upgrade. Routes that signing is removed from on the Routes page are excluded and stay unsigned until Add is clicked. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
-$text['description-setting_sign_all_routes']['en-gb'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when Setup or Routes is opened, or on upgrade. Routes that signing is removed from on the Routes page are excluded and stay unsigned until Add is clicked. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
+$text['description-setting_sign_all_routes']['en-us'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when a platform administrator opens Setup or Routes, or on upgrade. Routes that signing is removed from with Remove on the Routes page are excluded and stay unsigned until Add is clicked; signing deleted in the dialplan editor is added back. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
+$text['description-setting_sign_all_routes']['en-gb'] = "When true, signing is added to the outbound routes of every domain, including global routes and routes added later, with the destination taken from the bridge and attestation A. New routes are signed within an hour, when a platform administrator opens Setup or Routes, or on upgrade. Routes that signing is removed from with Remove on the Routes page are excluded and stay unsigned until Add is clicked; signing deleted in the dialplan editor is added back. Routes whose destination cannot be found in the bridge must be added on the Routes page.";
 
 $text['label-check_sign_all_routes']['en-us'] = "Sign All Routes";
 $text['label-check_sign_all_routes']['en-gb'] = "Sign All Routes";
@@ -83,6 +83,9 @@ $text['message-sign_all_skipped']['en-gb'] = "Routes that cannot be signed autom
 
 $text['message-sign_all_failed']['en-us'] = "Sign All Routes could not add signing to routes:";
 $text['message-sign_all_failed']['en-gb'] = "Sign All Routes could not add signing to routes:";
+
+$text['message-sign_all_remaining']['en-us'] = "Sign All Routes stopped at its time limit, the rest are signed on the next run, within minutes on a server with calls. Routes left:";
+$text['message-sign_all_remaining']['en-gb'] = "Sign All Routes stopped at its time limit, the rest are signed on the next run, within minutes on a server with calls. Routes left:";
 
 $text['label-routes_excluded']['en-us'] = "routes excluded";
 $text['label-routes_excluded']['en-gb'] = "routes excluded";

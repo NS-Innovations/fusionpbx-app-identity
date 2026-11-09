@@ -137,16 +137,9 @@
 			exit;
 	}
 
-//sign the new routes of every domain when sign all routes is on, so the list is current
-	if ($sign_all) {
-		$result = $setup->sign_all_routes();
-		if ($result['added'] > 0) {
-			message::add($text['message-signing_added_all'].' '.$result['added']);
-		}
-		if ($result['failed'] > 0) {
-			message::add($text['message-sign_all_failed'].' '.$result['failed'], 'negative', 5000);
-		}
-		unset($result);
+//sign the new routes of every domain when it is due, only for platform administrators since it changes every domain
+	if ($sign_all && permission_exists('identity_setup_all')) {
+		identity_setup::sign_all_messages(identity_setup::sign_all_routes_if_due($database, (string)$settings->get('cache', 'location', '/var/cache/fusionpbx')), $text);
 	}
 
 //get the count
@@ -273,7 +266,7 @@
 		unset($routes);
 	}
 	else {
-		echo "<tr class='list-row'><td colspan='".($show_all ? 7 : 6)."'>".$text['message-no_routes']."</td></tr>\n";
+		echo "<tr class='list-row'><td colspan='".($show_all ? 8 : 7)."'>".$text['message-no_routes']."</td></tr>\n";
 	}
 
 	echo "</table>\n";
