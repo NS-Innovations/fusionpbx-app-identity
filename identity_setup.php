@@ -363,7 +363,13 @@
 		$checks[] = [$text['label-check_outbound'], 'warning', $text['message-no_routes']];
 	}
 	else {
-		$checks[] = [$text['label-check_outbound'], $route_counts['signed'] == $route_counts['total'] ? 'ok' : 'warning', $route_counts['signed'].' / '.$route_counts['total'].' '.$text['label-routes_signing']];
+		//routes excluded on purpose with remove do not keep the check at warning
+		$outbound_ok = $route_counts['signed'] + $route_counts['excluded'] == $route_counts['total'];
+		$outbound_message = $route_counts['signed'].' / '.$route_counts['total'].' '.$text['label-routes_signing'];
+		if ($route_counts['excluded'] > 0) {
+			$outbound_message .= ', '.$route_counts['excluded'].' '.$text['label-routes_excluded'];
+		}
+		$checks[] = [$text['label-check_outbound'], $outbound_ok ? 'ok' : 'warning', $outbound_message];
 	}
 
 	//sign all routes, the routes it cannot sign because the destination was not found in the bridge
@@ -489,7 +495,7 @@
 	echo "	<div class='heading'><b>".$text['title-identity_setup']."</b></div>\n";
 	echo "	<div class='actions'>\n";
 	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'btn_back','link'=>'identity.php']);
-	echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes','link'=>'identity_routes.php']);
+	echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes','link'=>'identity_routes.php'.($platform ? '?show=all' : '')]);
 	echo button::create(['type'=>'button','label'=>$text['button-refresh'],'icon'=>$settings->get('theme', 'button_icon_refresh'),'id'=>'btn_refresh','style'=>'margin-left: 15px;','link'=>'identity_setup.php']);
 	echo "	</div>\n";
 	echo "	<div style='clear: both;'></div>\n";
@@ -700,7 +706,7 @@
 	echo "<br /><br />\n";
 	echo $text['description-outbound']."\n";
 	echo "<br /><br />\n";
-	echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes_section','link'=>'identity_routes.php']);
+	echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes_section','link'=>'identity_routes.php'.($platform ? '?show=all' : '')]);
 	echo "<br /><br /><br />\n";
 
 	//inbound verification applies to the whole platform

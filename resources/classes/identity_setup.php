@@ -677,8 +677,8 @@ class identity_setup {
 		}
 		if (!empty($options['search'])) {
 			$sql .= "and (lower(d.dialplan_name) like :search_name or lower(m.domain_name) like :search_domain) ";
-			$parameters['search_name'] = '%'.mb_strtolower($options['search']).'%';
-			$parameters['search_domain'] = '%'.mb_strtolower($options['search']).'%';
+			$parameters['search_name'] = self::like_pattern(mb_strtolower($options['search']));
+			$parameters['search_domain'] = self::like_pattern(mb_strtolower($options['search']));
 		}
 		switch ($options['status'] ?? '') {
 			case 'signed':
@@ -1028,11 +1028,16 @@ class identity_setup {
 	 *
 	 * @param array $routes  Rows posted by the routes list, each with keys: uuid, destination, attest_level
 	 * @param bool  $all     Include the routes of all domains, and global routes, instead of only the current domain
-	 * @param array $options Keys: search
+	 * @param array $options    Keys: search
+	 * @param int   $time_limit Seconds after which no more routes are signed, so a web request is not cut off by
+	 *                          PHP's max_execution_time; 0 for no limit
 	 *
-	 * @return array Counts with keys: added, failed, skipped
+	 * @return array Counts with keys: added, failed, skipped, remaining (not reached before the time limit)
 	 */
-	public function sign_unsigned_routes(array $routes, bool $all = false, array $options = []): array {
+	public function sign_unsigned_routes(array $routes, bool $all = false, array $options = [], int $time_limit = 0): array {
+		$start = microtime(true);
+		$this->extend_time_limit($time_limit);
+
 		//index the posted rows by route
 		$posted = [];
 		foreach ($routes as $route) {
@@ -1042,8 +1047,13 @@ class identity_setup {
 		}
 
 		//sign each route
-		$result = ['added' => 0, 'failed' => 0, 'skipped' => 0];
-		foreach ($this->outbound_routes($all, ['search' => $options['search'] ?? '', 'status' => 'unsigned']) as $route) {
+		$result = ['added' => 0, 'failed' => 0, 'skipped' => 0, 'remaining' => 0];
+		$list = $this->outbound_routes($all, ['search' => $options['search'] ?? '', 'status' => 'unsigned']);
+		foreach ($list as $i => $route) {
+			if ($time_limit > 0 && microtime(true) - $start > $time_limit) {
+				$result['remaining'] = count($list) - $i;
+				break;
+			}
 			$uuid = $route['dialplan_uuid'];
 			if (isset($posted[$uuid])) {
 				$destination = is_string($posted[$uuid]['destination'] ?? null) ? trim($posted[$uuid]['destination']) : '';
@@ -1088,6 +1098,8 @@ class identity_setup {
 	 */
 	public function sign_all_routes(int $time_limit = 0): array {
 		$result = ['added' => 0, 'failed' => 0, 'skipped' => 0, 'remaining' => 0];
+		$start = microtime(true);
+		$this->extend_time_limit($time_limit);
 
 		//the exclusions table is added by the upgrade, without it removed routes would be signed again
 		if (!$this->has_exclusions_table()) {
@@ -1109,8 +1121,7 @@ class identity_setup {
 			$this->purge_exclusions();
 			$this->include_signed_routes();
 
-			//sign each route that does not sign yet
-			$start = microtime(true);
+			//sign each route that does not sign yet, the time limit counts from the start of the run
 			$routes = $this->outbound_routes(true, ['status' => 'unsigned']);
 			foreach ($routes as $i => $route) {
 				if ($time_limit > 0 && microtime(true) - $start > $time_limit) {
@@ -1183,9 +1194,37 @@ class identity_setup {
 	}
 
 	/**
+	 * Give PHP's max_execution_time room past a run's own time limit, so the run stops itself between two routes rather
+	 * than being cut off after a route's actions were saved but before its dialplan XML was rebuilt. Only ever extends
+	 * the limit, and leaves no limit (the command line) as it is.
+	 *
+	 * @param int $time_limit Seconds the run may take, 0 for no limit
+	 *
+	 * @return void
+	 */
+	private function extend_time_limit(int $time_limit) {
+		$max = (int)ini_get('max_execution_time');
+		if ($time_limit > 0 && $max > 0) {
+			@set_time_limit(max($max, $time_limit + 60));
+		}
+	}
+
+	/**
+	 * Get a LIKE pattern that matches text containing the search, with the search's own %, _ and \ matched literally.
+	 *
+	 * @param string $search Text to search for, already lower case when the column is
+	 *
+	 * @return string The pattern, for a bound parameter
+	 */
+	public static function like_pattern(string $search): string {
+		return '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search).'%';
+	}
+
+	/**
 	 * Show the result of Add or Add All on the routes page as messages.
 	 *
-	 * @param array $result Counts from sign_routes() or sign_unsigned_routes(), with keys: added, failed, skipped
+	 * @param array $result Counts from sign_routes() or sign_unsigned_routes(), with keys: added, failed, skipped, and
+	 *                      remaining for Add All
 	 * @param array $text   Translations of the page
 	 *
 	 * @return void
@@ -1199,6 +1238,9 @@ class identity_setup {
 		}
 		if ($result['skipped'] > 0) {
 			message::add($text['message-signing_skipped_all'].' '.$result['skipped'], 'negative', 5000);
+		}
+		if (($result['remaining'] ?? 0) > 0) {
+			message::add($text['message-signing_remaining_all'].' '.$result['remaining'], 'alert', 5000);
 		}
 	}
 

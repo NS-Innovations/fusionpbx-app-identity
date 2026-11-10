@@ -225,6 +225,9 @@ $text['message-signing_removed_all']['en-gb'] = "Signing removed from routes:";
 $text['label-destination_required']['en-us'] = "Required";
 $text['label-destination_required']['en-gb'] = "Required";
 
+$text['message-signing_remaining_all']['en-us'] = "Add All stopped at its time limit, click Add All again to sign the rest. Routes left:";
+$text['message-signing_remaining_all']['en-gb'] = "Add All stopped at its time limit, click Add All again to sign the rest. Routes left:";
+
 $text['message-signing_excluded_all']['en-us'] = "Routes that did not sign excluded from Sign All Routes:";
 $text['message-signing_excluded_all']['en-gb'] = "Routes that did not sign excluded from Sign All Routes:";
 

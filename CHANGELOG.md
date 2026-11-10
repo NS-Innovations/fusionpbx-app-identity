@@ -14,19 +14,22 @@
   from 1.0.x, exclude the routes whose signing was removed on purpose (filter by **Not Signed**, check them and click
   **Remove**), since 1.0.x did not record removals.
 - **Routes page:** the outbound routes moved from Setup to their own page, so Setup stays short on servers with many
-  routes. The list is paged, searchable by route or domain name, filterable by signing and sortable with a stable order
-  across pages, and routes can be checked to add or remove signing on several at once. **Add All** works across every
-  page that matches the search, and is hidden when the list is filtered to signed or excluded routes. A route whose
-  destination cannot be found in the bridge is shown with the destination empty instead of `$1`, and **Add All** skips
-  it unless a destination is entered. The routes are filtered and paged in the database, so the overview and Setup no
-  longer read every route of every domain to count them.
-- **Setup:** the Outbound Signing check counts the routes of every domain for users with `identity_setup_all`, and
-  Setup no longer has a **Show All** button. Global outbound routes are shown with the domain Global under **Show All**
-  on the Routes page, and adding or removing their signing clears the dialplan cache of every domain instead of a
-  cache key that no domain uses.
+  routes. The list is paged, searchable by route or domain name (`%` and `_` match literally), filterable by signing and
+  sortable with a stable order across pages, and routes can be checked to add or remove signing on several at once.
+  **Add All** works across every page that matches the search, stops after 20 seconds and says how many routes are left,
+  and is hidden when the list is filtered to signed or excluded routes. A route whose destination cannot be found in the
+  bridge is shown with the destination empty instead of `$1`, and **Add All** skips it unless a destination is entered.
+  The routes are filtered and paged in the database, so the overview and Setup no longer read every route of every
+  domain to count them.
+- **Setup:** the Outbound Signing check counts the routes of every domain for users with `identity_setup_all`, and Setup
+  no longer has a **Show All** button; its **Routes** buttons open the routes of every domain for those users. The check
+  is OK when every route signs or is excluded, and shows the excluded count. Global outbound routes are shown with the
+  domain Global under **Show All** on the Routes page, and adding or removing their signing clears the dialplan cache of
+  every domain instead of a cache key that no domain uses.
 - **Settings:** saving the settings in Setup without changing any value no longer shows "The settings could not be
   saved". The database class reports a save that changes nothing without a result code, so only a failed save is
   reported.
+- **Logs:** the search matches `%` and `_` literally instead of as wildcards.
 
 ## 1.0.1 (2026-11-07)
 

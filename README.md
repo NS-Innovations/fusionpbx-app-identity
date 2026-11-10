@@ -161,7 +161,9 @@ taken from the bridge, the **Destination** box is empty and marked Required; a r
 signs every route that does not sign yet, is not excluded and matches the search, on every page: the routes on the
 current page with the values in their rows, the others with the suggested destination and attestation A. It skips
 routes whose destination cannot be taken from the bridge and was not filled in, and reports how many routes were signed,
-failed and skipped. **Remove** takes signing off a route. Only the routes of the current domain can be changed, unless **Show All** is used, which needs the
+failed and skipped. Like a Sign All Routes run, it stops after 20 seconds and says how many routes are left; click
+**Add All** again to sign the rest. The search matches the text as typed: `%` and `_` are not wildcards. **Remove**
+takes signing off a route. Only the routes of the current domain can be changed, unless **Show All** is used, which needs the
 `identity_setup_all` permission. **Show All** also lists the global outbound routes (Domain set to Global in the
 dialplan editor), shown with the domain Global; changing one clears the dialplan cache of every domain.
 
@@ -287,7 +289,8 @@ The checks table shows ok, warning or error, with details, for:
 - the attestation check (a warning when it is off)
 - debug mode
 - outbound routes: how many sign calls, counted over every domain for users with `identity_setup_all` and over the
-  current domain for others
+  current domain for others; OK when every route signs or was excluded with **Remove**, and the **Routes** buttons
+  open the same routes the check counts
 - Sign All Routes, when it is on: the number of excluded routes, and a warning with the number of routes it cannot sign
   because the destination cannot be taken from the bridge
 - inbound verification

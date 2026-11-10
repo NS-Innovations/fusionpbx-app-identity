@@ -103,7 +103,7 @@
 					identity_setup::signing_messages($setup->sign_routes($routes, $show_all), $text);
 					break;
 				case 'add_all':
-					identity_setup::signing_messages($setup->sign_unsigned_routes($routes, $show_all, ['search' => $search]), $text);
+					identity_setup::signing_messages($setup->sign_unsigned_routes($routes, $show_all, ['search' => $search], identity_setup::sign_all_time_limit), $text);
 					break;
 				case 'remove':
 					$result = $setup->unsign_routes($routes, $show_all);

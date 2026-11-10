@@ -128,7 +128,7 @@
 		$sql_where .= "	or lower(l.identity_log_message) like :search ";
 		$sql_where .= "	or cast(l.identity_log_call_uuid as text) like :search ";
 		$sql_where .= ") ";
-		$parameters['search'] = '%'.lower_case($search).'%';
+		$parameters['search'] = identity_setup::like_pattern(lower_case($search));
 	}
 
 //get the count
