@@ -30,6 +30,11 @@
   saved". The database class reports a save that changes nothing without a result code, so only a failed save is
   reported.
 - **Logs:** the search matches `%` and `_` literally instead of as wildcards.
+- **Allowed CIDR:** a request that sign.php or verify.php refuses because its address is not in Allowed CIDR is logged
+  as a failed result with no domain, and in the PHP error log, at most once a minute for each, instead of only getting
+  an empty response, so a call that was not signed or verified because of the setting can be traced. The Allowed CIDR
+  check in Setup shows an error when `127.0.0.1` is not allowed, since the signing and verification actions call
+  sign.php and verify.php on `127.0.0.1`.
 - **Accessibility:** the **Routes** buttons on the overview and Setup have a screen reader label on their link, which
   was announced as an unlabeled link, most noticeably with icon only buttons.
 

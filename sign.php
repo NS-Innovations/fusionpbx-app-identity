@@ -55,8 +55,9 @@ else {
 		return;
 	}
 
-	// Check if the CIDR is allowed
+	// Check if the CIDR is allowed, and log a refused request so an unsigned call can be traced
 	if (!identity_settings::is_allowed($allowed_cidr, $remote_address)) {
+		identity_logs::add_refused($database, 'sign', $remote_address, (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
 		return;
 	}
 

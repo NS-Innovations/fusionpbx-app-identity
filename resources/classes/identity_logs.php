@@ -134,6 +134,45 @@ class identity_logs {
 	}
 
 	/**
+	 * Log a request that sign.php or verify.php refused because its address is not in the Allowed CIDR setting.
+	 *
+	 * Without it a call is neither signed nor verified and nothing says why. The empty response is sent first so the
+	 * call does not wait. At most one refused request of each type is logged a minute, so a client that keeps sending
+	 * requests cannot fill the log or the PHP error log. The entry has no domain, because the domain of a refused
+	 * request is not trusted, so it is shown to users with identity_log_all.
+	 *
+	 * @param database $database       Database object
+	 * @param string   $type           sign or verify
+	 * @param string   $remote_address Address of the client
+	 * @param string   $cache_path     Directory of the file that holds the time of the last entry, the cache location
+	 *                                 setting
+	 *
+	 * @return bool True if the request was logged
+	 */
+	public static function add_refused(database $database, string $type, string $remote_address, string $cache_path = '/var/cache/fusionpbx'): bool {
+		//send the empty response before logging
+		if (function_exists('fastcgi_finish_request')) {
+			fastcgi_finish_request();
+		}
+
+		//log at most one refused request of each type a minute
+		if (!in_array($type, ['sign', 'verify'], true) || identity_schedule::due('identity_'.$type.'_refused', 60, $cache_path) !== true) {
+			return false;
+		}
+		$message = 'Refused: '.substr($remote_address, 0, 64).' is not in the Allowed CIDR setting. At most one refused request is logged a minute.';
+		error_log('identity: '.$type.' request '.lcfirst($message));
+
+		//add the log
+		$logs = new identity_logs(['database' => $database]);
+		return $logs->add([
+			'domain_uuid' => null,
+			'identity_log_type' => $type,
+			'identity_log_status' => 'failed',
+			'identity_log_message' => $message,
+		]);
+	}
+
+	/**
 	 * Deletes one or multiple records.
 	 *
 	 * @param array $records An array of record IDs to delete, where each ID is an associative array

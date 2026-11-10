@@ -338,6 +338,9 @@
 	if (!empty($cidr_invalid)) {
 		$checks[] = [$text['label-check_cidr'], 'error', $text['message-cidr_invalid'].' \''.implode('\', \'', $cidr_invalid).'\''];
 	}
+	else if (!identity_settings::is_allowed($identity_settings['allowed_cidr'], parse_url(identity_setup::local_url, PHP_URL_HOST))) {
+		$checks[] = [$text['label-check_cidr'], 'error', $text['message-cidr_local'].' '.$identity_settings['allowed_cidr']];
+	}
 	else if (substr_count($identity_settings['allowed_cidr'], '/0') != 0) {
 		$checks[] = [$text['label-check_cidr'], 'warning', $text['message-cidr_open'].' '.$identity_settings['allowed_cidr']];
 	}

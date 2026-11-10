@@ -285,7 +285,7 @@ The checks table shows ok, warning or error, with details, for:
 - the certificate: present, readable, expired, self-signed, or within 30 days of expiry
 - that the key matches the certificate
 - the certificate URL: set, https, reachable, and serving the same certificate
-- the allowed CIDR
+- the allowed CIDR: valid entries, open to every address (a warning), and `127.0.0.1` allowed (an error otherwise)
 - the attestation check (a warning when it is off)
 - debug mode
 - outbound routes: how many sign calls, counted over every domain for users with `identity_setup_all` and over the
@@ -336,7 +336,10 @@ checked first; an invalid value is listed with a **Back** button that returns to
 Requests from other addresses get an empty response. Keep it limited to the FreeSWITCH servers. Each entry must be an
 IPv4 address with a mask, such as `10.0.0.5/32`. Empty and invalid entries are ignored, and when no valid entry is left
 every request is refused, so a stray comma or a typo can never open signing to everyone. The checks list invalid
-entries.
+entries, and show an error when `127.0.0.1` is not allowed, since the actions added in Setup call sign.php and
+verify.php on `127.0.0.1`. A refused request is logged as a failed sign or verify result with no domain, and in the
+PHP error log, at most once a minute for each, so a call that was not signed or verified because of this setting can
+be traced.
 
 With **Debug** on, verify.php returns `PASSporT verification error <message>` instead of `TN-Validation-Failed`, and
 both scripts print errors on the command line. Leave it off in production. The checks warn while it is on.

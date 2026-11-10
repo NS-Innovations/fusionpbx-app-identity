@@ -546,6 +546,9 @@ $text['message-crl_failed']['en-gb'] = "The CRL cannot be used, so inbound calls
 $text['message-cidr_invalid']['en-us'] = "Invalid CIDR, use the address/mask format such as 127.0.0.1/32:";
 $text['message-cidr_invalid']['en-gb'] = "Invalid CIDR, use the address/mask format such as 127.0.0.1/32:";
 
+$text['message-cidr_local']['en-us'] = "127.0.0.1 is not allowed, so the signing and verification actions, which call sign.php and verify.php on 127.0.0.1, are refused and calls are neither signed nor verified:";
+$text['message-cidr_local']['en-gb'] = "127.0.0.1 is not allowed, so the signing and verification actions, which call sign.php and verify.php on 127.0.0.1, are refused and calls are neither signed nor verified:";
+
 $text['message-cidr_open']['en-us'] = "Any address can request a signature:";
 $text['message-cidr_open']['en-gb'] = "Any address can request a signature:";
 

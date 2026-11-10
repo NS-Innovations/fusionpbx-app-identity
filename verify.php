@@ -38,8 +38,9 @@ else {
 		return;
 	}
 
-	// Check if the CIDR is allowed
+	// Check if the CIDR is allowed, and log a refused request so an unverified call can be traced
 	if (!identity_settings::is_allowed($allowed_cidr, $remote_address)) {
+		identity_logs::add_refused($database, 'verify', $remote_address, $setting_array['cache_path']);
 		return;
 	}
 
