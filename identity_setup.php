@@ -495,7 +495,7 @@
 	echo "	<div class='heading'><b>".$text['title-identity_setup']."</b></div>\n";
 	echo "	<div class='actions'>\n";
 	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'btn_back','link'=>'identity.php']);
-	echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes','link'=>'identity_routes.php'.($platform ? '?show=all' : '')]);
+	echo identity_setup::link_button(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes','link'=>'identity_routes.php'.($platform ? '?show=all' : '')]);
 	echo button::create(['type'=>'button','label'=>$text['button-refresh'],'icon'=>$settings->get('theme', 'button_icon_refresh'),'id'=>'btn_refresh','style'=>'margin-left: 15px;','link'=>'identity_setup.php']);
 	echo "	</div>\n";
 	echo "	<div style='clear: both;'></div>\n";
@@ -706,7 +706,7 @@
 	echo "<br /><br />\n";
 	echo $text['description-outbound']."\n";
 	echo "<br /><br />\n";
-	echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes_section','link'=>'identity_routes.php'.($platform ? '?show=all' : '')]);
+	echo identity_setup::link_button(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes_section','link'=>'identity_routes.php'.($platform ? '?show=all' : '')]);
 	echo "<br /><br /><br />\n";
 
 	//inbound verification applies to the whole platform

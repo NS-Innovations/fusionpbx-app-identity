@@ -159,7 +159,7 @@
 		echo button::create(['type'=>'button','label'=>$text['button-logs'],'icon'=>$settings->get('theme', 'button_icon_view'),'id'=>'btn_logs','link'=>'identity_logs.php'.($show_all ? '?show=all' : '')]);
 	}
 	if (permission_exists('identity_setup')) {
-		echo button::create(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes','link'=>'identity_routes.php'.($show_all && permission_exists('identity_setup_all') ? '?show=all' : '')]);
+		echo identity_setup::link_button(['type'=>'button','label'=>$text['button-routes'],'icon'=>$settings->get('theme', 'button_icon_list'),'id'=>'btn_routes','link'=>'identity_routes.php'.($show_all && permission_exists('identity_setup_all') ? '?show=all' : '')]);
 		echo button::create(['type'=>'button','label'=>$text['button-setup'],'icon'=>$settings->get('theme', 'button_icon_settings'),'id'=>'btn_setup','link'=>'identity_setup.php']);
 	}
 	echo "		<form id='form_period' class='inline' method='get'>\n";

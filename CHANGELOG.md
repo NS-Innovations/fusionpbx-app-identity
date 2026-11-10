@@ -30,6 +30,8 @@
   saved". The database class reports a save that changes nothing without a result code, so only a failed save is
   reported.
 - **Logs:** the search matches `%` and `_` literally instead of as wildcards.
+- **Accessibility:** the **Routes** buttons on the overview and Setup have a screen reader label on their link, which
+  was announced as an unlabeled link, most noticeably with icon only buttons.
 
 ## 1.0.1 (2026-11-07)
 

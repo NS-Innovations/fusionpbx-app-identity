@@ -1221,6 +1221,22 @@ class identity_setup {
 	}
 
 	/**
+	 * Create a button that opens a page, like button::create() with a link, with the label also on the link.
+	 *
+	 * button::create() wraps the button in a link that has no accessible name of its own, so with icon only buttons a
+	 * screen reader announces an unlabeled link. Margin styles are not supported, the button is wrapped as it is.
+	 *
+	 * @param array $button Options for button::create(), with keys label and link
+	 *
+	 * @return string HTML of the link and button
+	 */
+	public static function link_button(array $button): string {
+		$link = (string)($button['link'] ?? '');
+		unset($button['link']);
+		return "<a href='".escape($link)."' target='_self' aria-label=\"".escape($button['label'] ?? '')."\">".button::create($button)."</a>";
+	}
+
+	/**
 	 * Show the result of Add or Add All on the routes page as messages.
 	 *
 	 * @param array $result Counts from sign_routes() or sign_unsigned_routes(), with keys: added, failed, skipped, and
