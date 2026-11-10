@@ -99,8 +99,9 @@
 					if ($settings_manager->save($values)) {
 						message::add($text['message-settings_saved']);
 
-						//sign the routes of every domain now rather than within the hour
-						if ($values['sign_all_routes'] == 'true') {
+						//sign the routes of every domain now rather than within the hour when the setting is turned on, other
+						//saves leave it to the hourly run
+						if ($values['sign_all_routes'] == 'true' && empty($identity_settings['sign_all_routes'])) {
 							identity_setup::sign_all_messages(identity_setup::sign_all_routes_if_due($database, $identity_settings['cache_path'], true), $text);
 						}
 					}

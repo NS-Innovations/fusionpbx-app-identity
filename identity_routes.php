@@ -52,7 +52,7 @@
 	$search = is_string($_GET['search'] ?? null) ? $_GET['search'] : '';
 	$show = $_GET['show'] ?? '';
 	$show_all = $show == 'all' && permission_exists('identity_setup_all');
-	$statuses = $sign_all ? ['signed', 'unsigned', 'excluded'] : ['signed', 'unsigned'];
+	$statuses = ['signed', 'unsigned', 'excluded'];
 	$status = in_array($_GET['status'] ?? '', $statuses, true) ? $_GET['status'] : '';
 
 //build the query string
@@ -77,9 +77,8 @@
 	}
 	$query_string = http_build_query($param);
 
-//the filters of the list, without sign all routes an excluded route is listed as unsigned
-	$unsigned_status = $sign_all ? 'unsigned' : 'not_signed';
-	$filter = ['search' => $search, 'status' => $status == 'unsigned' ? $unsigned_status : $status];
+//the filters of the list, an excluded route is listed as excluded whether sign all routes is on or not
+	$filter = ['search' => $search, 'status' => $status];
 
 //get posted data
 	if (!empty($_POST['routes']) && is_array($_POST['routes'])) {
@@ -108,9 +107,12 @@
 					if ($result['failed'] > 0) {
 						message::add($text['message-signing_failed_all'].' '.$result['failed'], 'negative', 5000);
 					}
+					if ($result['skipped'] > 0) {
+						message::add($text['message-signing_skipped_all'].' '.$result['skipped'], 'negative', 5000);
+					}
 					break;
 				case 'add_all':
-					$result = $setup->sign_unsigned_routes($routes, $show_all, ['search' => $search, 'status' => $unsigned_status]);
+					$result = $setup->sign_unsigned_routes($routes, $show_all, ['search' => $search, 'status' => 'unsigned']);
 					if ($result['added'] > 0) {
 						message::add($text['message-signing_added_all'].' '.$result['added']);
 					}
@@ -147,7 +149,7 @@
 
 //get the count
 	$num_rows = $setup->outbound_route_count($show_all, $filter);
-	$num_addable = $setup->outbound_route_count($show_all, ['search' => $search, 'status' => $unsigned_status]);
+	$num_addable = $setup->outbound_route_count($show_all, ['search' => $search, 'status' => 'unsigned']);
 
 //prepare to page the results
 	$rows_per_page = $settings->get('domain', 'paging', 50);
@@ -249,9 +251,9 @@
 				echo "</td>\n";
 			}
 			else {
-				echo "	<td>".($sign_all && $route['excluded'] ? $text['label-excluded'] : $text['label-no'])."</td>\n";
+				echo "	<td>".($route['excluded'] ? $text['label-excluded'] : $text['label-no'])."</td>\n";
 				//leave the destination empty when it was not found in the bridge, so it is not signed with a guess
-				echo "	<td><input class='formfld' type='text' name='routes[$x][destination]' maxlength='16' style='width: 80px;' placeholder='\$1' value=\"".($route['destination_found'] ? escape($route['destination']) : '')."\"></td>\n";
+				echo "	<td><input class='formfld' type='text' name='routes[$x][destination]' maxlength='16' style='width: 80px;' placeholder=\"".$text['label-destination_required']."\" value=\"".($route['destination_found'] ? escape($route['destination']) : '')."\"></td>\n";
 				echo "	<td>\n";
 				echo "		<select class='formfld' name='routes[$x][attest_level]'>\n";
 				foreach (['A', 'B', 'C'] as $level) {

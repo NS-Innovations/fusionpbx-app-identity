@@ -222,6 +222,9 @@ $text['confirm-remove_signing_checked']['en-gb'] = "Remove signing from the chec
 $text['message-signing_removed_all']['en-us'] = "Signing removed from routes:";
 $text['message-signing_removed_all']['en-gb'] = "Signing removed from routes:";
 
+$text['label-destination_required']['en-us'] = "Required";
+$text['label-destination_required']['en-gb'] = "Required";
+
 $text['message-signing_excluded_all']['en-us'] = "Routes that did not sign excluded from Sign All Routes:";
 $text['message-signing_excluded_all']['en-gb'] = "Routes that did not sign excluded from Sign All Routes:";
 

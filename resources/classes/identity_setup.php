@@ -779,10 +779,12 @@ class identity_setup {
 			return false;
 		}
 
-		//find the group of the first bridge, and stop if the route already signs
+		//find the group of the first bridge, and stop if the route already signs, clearing an exclusion left from signing
+		//that was added back in the dialplan editor
 		$group = null;
 		foreach ($details as $detail) {
 			if ($detail['dialplan_detail_tag'] == 'action' && $detail['dialplan_detail_type'] == 'curl' && strpos($detail['dialplan_detail_data'], '/app/identity/sign.php') !== false) {
+				$this->include_route($dialplan_uuid);
 				return false;
 			}
 			if ($group === null && $detail['dialplan_detail_tag'] == 'action' && $detail['dialplan_detail_type'] == 'bridge') {
@@ -948,7 +950,12 @@ class identity_setup {
 		//rebuild the dialplan xml and clear the cache, also when the delete failed part way
 		$this->update_dialplan($dialplan_uuid, $route['dialplan_context']);
 
-		return !$this->route_signs($dialplan_uuid);
+		//when the route still signs, undo the exclusion so the route is never left signed and excluded
+		if ($this->route_signs($dialplan_uuid)) {
+			$this->include_route($dialplan_uuid);
+			return false;
+		}
+		return true;
 	}
 
 	/**
@@ -957,10 +964,10 @@ class identity_setup {
 	 * @param array $routes Rows posted by the routes list, each with keys: checked, uuid, destination, attest_level
 	 * @param bool  $all    Allow the routes of any domain, and global routes, instead of only the current domain
 	 *
-	 * @return array Counts with keys: added, failed
+	 * @return array Counts with keys: added, skipped (no destination entered), failed
 	 */
 	public function sign_routes(array $routes, bool $all = false): array {
-		$result = ['added' => 0, 'failed' => 0];
+		$result = ['added' => 0, 'skipped' => 0, 'failed' => 0];
 		foreach ($routes as $route) {
 			if (!is_array($route) || ($route['checked'] ?? '') !== 'true' || !is_uuid($route['uuid'] ?? '')) {
 				continue;
@@ -969,6 +976,10 @@ class identity_setup {
 				continue;
 			}
 			$destination = is_string($route['destination'] ?? null) ? trim($route['destination']) : '';
+			if ($destination === '') {
+				$result['skipped']++;
+				continue;
+			}
 			$attest_level = is_string($route['attest_level'] ?? null) ? $route['attest_level'] : '';
 			if ($this->add_signing($route['uuid'], $destination, $attest_level, $all)) {
 				$result['added']++;
@@ -1095,8 +1106,10 @@ class identity_setup {
 		}
 
 		try {
-			//remove the exclusions of routes that were deleted
+			//remove the exclusions of routes that were deleted, and of routes whose signing was added back in the dialplan
+			//editor, so signing deleted later is added back
 			$this->purge_exclusions();
+			$this->include_signed_routes();
 
 			//sign each route that does not sign yet
 			$start = microtime(true);
@@ -1339,6 +1352,35 @@ class identity_setup {
 		$this->database->delete($array);
 		unset($array);
 		$p->delete('identity_route_exclusion_delete', 'temp');
+	}
+
+	/**
+	 * Remove the exclusions of routes that sign, such as a route whose signing was added back in the dialplan editor
+	 * after Remove. Each route is locked and checked again, since Remove saves the exclusion before it deletes the
+	 * actions.
+	 *
+	 * @return void
+	 */
+	private function include_signed_routes() {
+		$sql = "select e.dialplan_uuid from v_identity_route_exclusions as e ";
+		$sql .= "where exists (select 1 from v_dialplan_details as s where s.dialplan_uuid = e.dialplan_uuid and s.dialplan_detail_tag = 'action' and s.dialplan_detail_type = 'curl' and s.dialplan_detail_data like :sign_url) ";
+		$parameters['sign_url'] = '%/app/identity/sign.php%';
+		$rows = $this->database->select($sql, $parameters, 'all');
+		unset($sql, $parameters);
+		if (!is_array($rows)) {
+			return;
+		}
+		foreach ($rows as $row) {
+			$this->lock_route($row['dialplan_uuid']);
+			try {
+				if ($this->route_signs($row['dialplan_uuid'])) {
+					$this->include_route($row['dialplan_uuid']);
+				}
+			}
+			finally {
+				$this->unlock_route($row['dialplan_uuid']);
+			}
+		}
 	}
 
 	/**

@@ -152,15 +152,16 @@ and Logs pages, only to users with `identity_log_all`; other users see only the 
 
 The **Routes** page (the **Routes** button on the overview and on Setup) lists each outbound route with a bridge and
 whether it signs calls. It needs the `identity_setup` permission. The list is paged with the domain's paging setting,
-can be searched by route or domain name, filtered by signing (signed, not signed, and excluded while
-[Sign All Routes](#sign-all-routes) is on) and sorted by domain, name, enabled or signing.
+can be searched by route or domain name, filtered by signing (signed, not signed, and excluded from
+[Sign All Routes](#sign-all-routes)) and sorted by domain, name, enabled or signing.
 
 For a route that does not sign yet, check the **Destination** and **Attestation**, then click **Add** on the row. To
-change several routes at once, check them and use **Add** or **Remove** at the top. **Add All** signs every route that
-does not sign yet and matches the search, on every page: the routes on the current page with the values in their rows,
-the others with the suggested destination and attestation A. It skips routes whose destination cannot be taken from the
-bridge and was not filled in, and reports how many routes were signed, failed and skipped. **Remove** takes signing off
-a route. Only the routes of the current domain can be changed, unless **Show All** is used, which needs the
+change several routes at once, check them and use **Add** or **Remove** at the top. When the destination cannot be
+taken from the bridge, the **Destination** box is empty and marked Required; a route left empty is skipped. **Add All**
+signs every route that does not sign yet, is not excluded and matches the search, on every page: the routes on the
+current page with the values in their rows, the others with the suggested destination and attestation A. It skips
+routes whose destination cannot be taken from the bridge and was not filled in, and reports how many routes were signed,
+failed and skipped. **Remove** takes signing off a route. Only the routes of the current domain can be changed, unless **Show All** is used, which needs the
 `identity_setup_all` permission. **Show All** also lists the global outbound routes (Domain set to Global in the
 dialplan editor), shown with the domain Global; changing one clears the dialplan cache of every domain.
 
@@ -208,7 +209,7 @@ yet, including global routes, so new routes do not need to be added one at a tim
 
 The routes are signed:
 
-- when the setting is saved in Setup
+- when the setting is turned on in Setup (saving other settings leaves it to the hourly run)
 - at most once an hour after a call is signed or verified, or when a user with `identity_setup_all` opens Setup or
   the Routes page, so a new route is signed within an hour without a cron job (the time of the last run is kept in
   `identity_sign_all_routes_<uid>` in the FusionPBX cache directory). Users without `identity_setup_all` never start a
@@ -222,16 +223,17 @@ rest are signed by the next calls or page views. The upgrade has no time limit. 
 PostgreSQL advisory lock), and each route is locked while signing is added to or removed from it, so a run cannot
 sign a route again while **Remove** is taking signing off it, or add signing twice while **Add** is adding it.
 
-**Remove** excludes a route: it stays unsigned and is shown as **Excluded** while the setting is on. A route that is
-not signed yet can be excluded too, so it is never signed: check it and click **Remove** at the top. Click **Add** on
-the route to sign it again, which removes the exclusion. **Add All** leaves excluded routes alone and is shown only
-when the list is not filtered to **Signed** or **Excluded**. Exclusions are kept
-in the `v_identity_route_exclusions` table, created by the upgrade, and are deleted with their route. Until the
-upgrade has created the table nothing is signed automatically.
+**Remove** excludes a route: it stays unsigned and is shown as **Excluded**, also while the setting is off, so turning
+the setting on later leaves it unsigned. A route that is not signed yet can be excluded too, so it is never signed:
+check it and click **Remove** at the top. Click **Add** on the route to sign it again, which removes the exclusion.
+**Add All** leaves excluded routes alone and is shown only when the list is not filtered to **Signed** or
+**Excluded**. Exclusions are kept in the `v_identity_route_exclusions` table, created by the upgrade, and are deleted
+with their route. Until the upgrade has created the table nothing is signed automatically.
 
 Only **Remove** on the Routes page excludes a route. Signing taken off any other way, such as by deleting the actions
 in the dialplan editor, leaves the route unsigned and not excluded, so Sign All Routes adds signing back within the
-hour. To keep a route unsigned, use **Remove**.
+hour. To keep a route unsigned, use **Remove**. When signing is added back to an excluded route in the dialplan
+editor, the next run removes the exclusion, so later edits are handled the same way.
 
 A route whose destination cannot be taken from the bridge, such as a bridge to `user/1000@domain`, is not signed,
 because it would only be guessing `$1`. The checks in Setup count them; set the destination of each on the Routes page
