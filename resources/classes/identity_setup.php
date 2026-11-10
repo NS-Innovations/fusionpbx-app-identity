@@ -480,8 +480,8 @@ class identity_setup {
 	 * The routes are filtered, sorted and paged in the database, and the actions are only read for the routes returned.
 	 *
 	 * @param bool  $all     Return the routes of all domains, and the global routes, instead of the current domain
-	 * @param array $options Optional keys: search (part of the route or domain name), status (signed, not_signed,
-	 *                       unsigned: not signed and not excluded, excluded: not signed and excluded), order_by
+	 * @param array $options Optional keys: search (part of the route or domain name), status (signed, unsigned: not
+	 *                       signed and not excluded, excluded: not signed and excluded), order_by
 	 *                       (domain_name, dialplan_name, dialplan_enabled or signed), order (asc or desc), limit and
 	 *                       offset
 	 *
@@ -501,21 +501,22 @@ class identity_setup {
 		$sql .= "left join v_domains as m on m.domain_uuid = d.domain_uuid ";
 		$sql .= $this->routes_where($all, $options, $parameters);
 		$order = ($options['order'] ?? '') === 'desc' ? 'desc' : 'asc';
+		//every order ends with the uuid, so the pages do not overlap or skip routes that sort the same
 		switch ($options['order_by'] ?? '') {
 			case 'domain_name':
-				$sql .= "order by m.domain_name ".$order.", d.dialplan_order asc, d.dialplan_name asc ";
+				$sql .= "order by m.domain_name ".$order.", d.dialplan_order asc, d.dialplan_name asc, d.dialplan_uuid asc ";
 				break;
 			case 'dialplan_name':
-				$sql .= "order by d.dialplan_name ".$order.", m.domain_name asc ";
+				$sql .= "order by d.dialplan_name ".$order.", m.domain_name asc, d.dialplan_uuid asc ";
 				break;
 			case 'dialplan_enabled':
-				$sql .= "order by d.dialplan_enabled ".$order.", m.domain_name asc, d.dialplan_order asc, d.dialplan_name asc ";
+				$sql .= "order by d.dialplan_enabled ".$order.", m.domain_name asc, d.dialplan_order asc, d.dialplan_name asc, d.dialplan_uuid asc ";
 				break;
 			case 'signed':
-				$sql .= "order by signed ".$order.", excluded ".$order.", m.domain_name asc, d.dialplan_order asc, d.dialplan_name asc ";
+				$sql .= "order by signed ".$order.", excluded ".$order.", m.domain_name asc, d.dialplan_order asc, d.dialplan_name asc, d.dialplan_uuid asc ";
 				break;
 			default:
-				$sql .= "order by m.domain_name asc, d.dialplan_order asc, d.dialplan_name asc ";
+				$sql .= "order by m.domain_name asc, d.dialplan_order asc, d.dialplan_name asc, d.dialplan_uuid asc ";
 		}
 		if (!empty($options['limit'])) {
 			$sql .= limit_offset((int)$options['limit'], (int)($options['offset'] ?? 0));
@@ -682,9 +683,6 @@ class identity_setup {
 		switch ($options['status'] ?? '') {
 			case 'signed':
 				$sql .= "and ".$columns['signed']." ";
-				break;
-			case 'not_signed':
-				$sql .= "and not ".$columns['signed']." ";
 				break;
 			case 'unsigned':
 				$sql .= "and not ".$columns['signed']." and not ".$columns['excluded']." ";
@@ -903,6 +901,12 @@ class identity_setup {
 			return false;
 		}
 
+		//a route that does not sign is only excluded, so sign all routes leaves it unsigned; nothing is deleted, since
+		//some of the actions below, such as unset curl_timeout, may be the route's own
+		if (!$this->route_signs($dialplan_uuid)) {
+			return $this->has_exclusions_table() && $this->exclude_route($dialplan_uuid, (string)$route['domain_uuid']);
+		}
+
 		//find the actions added by add_signing
 		$sql = "select dialplan_detail_uuid from v_dialplan_details ";
 		$sql .= "where dialplan_uuid = :dialplan_uuid ";
@@ -921,7 +925,7 @@ class identity_setup {
 		$parameters['timeout'] = 'curl_timeout='.self::sign_timeout;
 		$rows = $this->database->select($sql, $parameters, 'all');
 		unset($sql, $parameters);
-		if (!is_array($rows)) {
+		if (!is_array($rows) || @sizeof($rows) == 0) {
 			return false;
 		}
 
@@ -929,11 +933,6 @@ class identity_setup {
 		//not saved, so the route is never left unsigned and not excluded
 		if (!$this->exclude_route($dialplan_uuid, (string)$route['domain_uuid'])) {
 			return false;
-		}
-
-		//a route that does not sign is only excluded, so sign all routes leaves it unsigned
-		if (@sizeof($rows) == 0) {
-			return $this->has_exclusions_table();
 		}
 
 		//delete the actions
@@ -1029,7 +1028,7 @@ class identity_setup {
 	 *
 	 * @param array $routes  Rows posted by the routes list, each with keys: uuid, destination, attest_level
 	 * @param bool  $all     Include the routes of all domains, and global routes, instead of only the current domain
-	 * @param array $options Keys: search, and status (unsigned to leave out the excluded routes, or not_signed)
+	 * @param array $options Keys: search
 	 *
 	 * @return array Counts with keys: added, failed, skipped
 	 */
@@ -1044,8 +1043,7 @@ class identity_setup {
 
 		//sign each route
 		$result = ['added' => 0, 'failed' => 0, 'skipped' => 0];
-		$options['status'] = ($options['status'] ?? '') === 'not_signed' ? 'not_signed' : 'unsigned';
-		foreach ($this->outbound_routes($all, ['search' => $options['search'] ?? '', 'status' => $options['status']]) as $route) {
+		foreach ($this->outbound_routes($all, ['search' => $options['search'] ?? '', 'status' => 'unsigned']) as $route) {
 			$uuid = $route['dialplan_uuid'];
 			if (isset($posted[$uuid])) {
 				$destination = is_string($posted[$uuid]['destination'] ?? null) ? trim($posted[$uuid]['destination']) : '';
@@ -1182,6 +1180,26 @@ class identity_setup {
 			error_log('identity: Sign All Routes could not add signing to '.$result['failed'].' outbound route(s)');
 		}
 		return $result;
+	}
+
+	/**
+	 * Show the result of Add or Add All on the routes page as messages.
+	 *
+	 * @param array $result Counts from sign_routes() or sign_unsigned_routes(), with keys: added, failed, skipped
+	 * @param array $text   Translations of the page
+	 *
+	 * @return void
+	 */
+	public static function signing_messages(array $result, array $text) {
+		if ($result['added'] > 0) {
+			message::add($text['message-signing_added_all'].' '.$result['added']);
+		}
+		if ($result['failed'] > 0) {
+			message::add($text['message-signing_failed_all'].' '.$result['failed'], 'negative', 5000);
+		}
+		if ($result['skipped'] > 0) {
+			message::add($text['message-signing_skipped_all'].' '.$result['skipped'], 'negative', 5000);
+		}
 	}
 
 	/**

@@ -218,12 +218,9 @@ class identity_settings {
 				$x++;
 			}
 		}
-		//saved when every row was updated (200) or left as it was (000, no changes); with no changes at all the
-		//database class sets no overall code, so the codes of the rows are checked
+		//save() returns false when a row failed; when no value changed it sets no 200 code, so the code is not checked
 		$result = $this->database->save($array);
-		$codes = array_column($this->database->message['details'] ?? [], 'code');
-		$saved = $result !== false && !empty($codes) && empty(array_diff($codes, ['000', '200']));
-		$saved = $saved && count(array_intersect_key($rows, self::definitions)) == count(self::definitions);
+		$saved = $result !== false && count(array_intersect_key($rows, self::definitions)) == count(self::definitions);
 		unset($array);
 		$p->delete('default_setting_add', 'temp');
 		$p->delete('default_setting_edit', 'temp');

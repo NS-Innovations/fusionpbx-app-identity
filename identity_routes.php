@@ -100,28 +100,10 @@
 		//run the action
 			switch ($action) {
 				case 'add':
-					$result = $setup->sign_routes($routes, $show_all);
-					if ($result['added'] > 0) {
-						message::add($text['message-signing_added_all'].' '.$result['added']);
-					}
-					if ($result['failed'] > 0) {
-						message::add($text['message-signing_failed_all'].' '.$result['failed'], 'negative', 5000);
-					}
-					if ($result['skipped'] > 0) {
-						message::add($text['message-signing_skipped_all'].' '.$result['skipped'], 'negative', 5000);
-					}
+					identity_setup::signing_messages($setup->sign_routes($routes, $show_all), $text);
 					break;
 				case 'add_all':
-					$result = $setup->sign_unsigned_routes($routes, $show_all, ['search' => $search, 'status' => 'unsigned']);
-					if ($result['added'] > 0) {
-						message::add($text['message-signing_added_all'].' '.$result['added']);
-					}
-					if ($result['failed'] > 0) {
-						message::add($text['message-signing_failed_all'].' '.$result['failed'], 'negative', 5000);
-					}
-					if ($result['skipped'] > 0) {
-						message::add($text['message-signing_skipped_all'].' '.$result['skipped'], 'negative', 5000);
-					}
+					identity_setup::signing_messages($setup->sign_unsigned_routes($routes, $show_all, ['search' => $search]), $text);
 					break;
 				case 'remove':
 					$result = $setup->unsign_routes($routes, $show_all);

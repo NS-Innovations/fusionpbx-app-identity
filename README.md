@@ -207,6 +207,11 @@ yet, including global routes, so new routes do not need to be added one at a tim
 **Add** would, with the destination suggested from the bridge and attestation A. The
 [attestation check](#attestation) still lowers A to B when the domain does not own the calling number.
 
+**Before turning it on**, exclude the routes that must stay unsigned, such as routes to a carrier that rejects the
+Identity header: on the Routes page, filter by **Not Signed**, check those routes and click **Remove**. This matters
+most after upgrading from 1.0.x, where **Remove** did not record anything, so a route whose signing was removed on
+purpose looks the same as one that was never signed and would be signed with the others.
+
 The routes are signed:
 
 - when the setting is turned on in Setup (saving other settings leaves it to the hourly run)
