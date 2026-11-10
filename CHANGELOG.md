@@ -22,6 +22,8 @@
   Setup no longer has a **Show All** button. Global outbound routes are shown with the domain Global under **Show All**
   on the Routes page, and adding or removing their signing clears the dialplan cache of every domain instead of a
   cache key that no domain uses.
+- **Settings:** saving the settings in Setup without changing any value no longer shows "The settings could not be
+  saved". The database class reports a save that changes nothing without a result code, so each row's code is checked.
 
 ## 1.0.1 (2026-11-07)
 

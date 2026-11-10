@@ -218,8 +218,12 @@ class identity_settings {
 				$x++;
 			}
 		}
-		$this->database->save($array);
-		$saved = ($this->database->message['code'] ?? '') == '200' && count(array_intersect_key($rows, self::definitions)) == count(self::definitions);
+		//saved when every row was updated (200) or left as it was (000, no changes); with no changes at all the
+		//database class sets no overall code, so the codes of the rows are checked
+		$result = $this->database->save($array);
+		$codes = array_column($this->database->message['details'] ?? [], 'code');
+		$saved = $result !== false && !empty($codes) && empty(array_diff($codes, ['000', '200']));
+		$saved = $saved && count(array_intersect_key($rows, self::definitions)) == count(self::definitions);
 		unset($array);
 		$p->delete('default_setting_add', 'temp');
 		$p->delete('default_setting_edit', 'temp');
