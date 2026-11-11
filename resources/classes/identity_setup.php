@@ -1758,8 +1758,9 @@ class identity_setup {
 	 */
 	public function origin_dialplan(): array {
 		$sql = "select dialplan_uuid, cast(dialplan_enabled as text) as dialplan_enabled, ";
-		$sql .= "(select count(*) from v_dialplan_details as d where d.dialplan_uuid = p.dialplan_uuid and d.dialplan_detail_data like 'identity_origin_number=%') as number_exported ";
+		$sql .= "(select count(*) from v_dialplan_details as d where d.dialplan_uuid = p.dialplan_uuid and d.dialplan_detail_data like 'identity_origin_number=%' and coalesce(cast(d.dialplan_detail_enabled as text), 'true') = 'true') as number_exported ";
 		$sql .= "from v_dialplans as p where app_uuid = :app_uuid ";
+		$sql .= "order by p.insert_date asc limit 1 ";
 		$parameters['app_uuid'] = self::origin_app_uuid;
 		$row = $this->database->select($sql, $parameters, 'row');
 		unset($sql, $parameters);
@@ -1786,12 +1787,11 @@ class identity_setup {
 		$array['dialplan_details'][0]['dialplan_detail_inline'] = 'true';
 		$array['dialplan_details'][0]['dialplan_detail_group'] = 0;
 		$array['dialplan_details'][0]['dialplan_detail_order'] = 20;
+		$array['dialplan_details'][0]['dialplan_detail_enabled'] = 'true';
 		$p = permissions::new();
 		$p->add('dialplan_detail_add', 'temp');
-		$p->add('dialplan_edit', 'temp');
 		$this->database->save($array);
 		$p->delete('dialplan_detail_add', 'temp');
-		$p->delete('dialplan_edit', 'temp');
 		$this->update_dialplan($dialplan['dialplan_uuid'], 'public');
 		return true;
 	}
@@ -1894,7 +1894,7 @@ class identity_setup {
 
 		//clear the cache
 		$cache = new cache;
-		$cache->delete("dialplan:public");
+		self::clear_public_cache($this->database);
 
 		return true;
 	}
@@ -1930,6 +1930,34 @@ class identity_setup {
 	 *
 	 * @return void
 	 */
+	/**
+	 * Clears the cached public dialplan: dialplan:public in multiple dialplan mode, and in single mode the key of each
+	 * inbound number, dialplan:public:<number>, which the file cache clears by its pattern and memcache one by one.
+	 * Only these keys go, so the replay claims, the certificate and CRL caches and other apps' entries stay.
+	 *
+	 * @param database $database The database
+	 *
+	 * @return void
+	 */
+	public static function clear_public_cache(database $database) {
+		$cache = new cache;
+		$cache->delete("dialplan:public");
+		$cache->delete("dialplan:public:*");
+		$sql = "select distinct n from (";
+		$sql .= "select destination_number as n from v_destinations ";
+		$sql .= "union select coalesce(destination_prefix, '') || destination_number from v_destinations ";
+		$sql .= "union select '+' || coalesce(destination_prefix, '') || destination_number from v_destinations ";
+		$sql .= "union select coalesce(destination_area_code, '') || destination_number from v_destinations ";
+		$sql .= "union select coalesce(destination_prefix, '') || coalesce(destination_area_code, '') || destination_number from v_destinations ";
+		$sql .= ") as numbers where n is not null and n <> '' ";
+		foreach ($database->select($sql, null, 'all') ?: [] as $row) {
+			if (preg_match('/^\+?[0-9*#]+$/D', $row['n'])) {
+				$cache->delete("dialplan:public:".$row['n']);
+			}
+		}
+		unset($sql);
+	}
+
 	private function update_dialplan(string $dialplan_uuid, string $dialplan_context) {
 		//rebuild the dialplan xml
 		$dialplans = new dialplan;
@@ -1942,12 +1970,11 @@ class identity_setup {
 		if ($dialplan_context == '${domain_name}' || $dialplan_context == 'global') {
 			$dialplan_context = '*';
 		}
-		$cache = new cache;
 		if ($dialplan_context == 'public') {
-			//in single dialplan mode each inbound number has its own cache key, dialplan:public:<number>
-			$cache->flush();
+			self::clear_public_cache($this->database);
 		}
 		else {
+			$cache = new cache;
 			$cache->delete("dialplan:".$dialplan_context);
 		}
 

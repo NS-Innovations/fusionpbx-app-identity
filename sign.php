@@ -92,10 +92,12 @@ $source_number = $identity->normalize_tn($source_number);
 $destination_number = $identity->normalize_tn($destination_number);
 
 // A call that came in from outside and is going out again, such as one forwarded by call forward, a ring group or follow
-// me, still has the outside caller's number, which nobody here authenticated, so it is signed as a gateway (C) whatever
-// the route asks for. It is told by identity_origin, which this app's public dialplan exports to every call that comes
-// in from outside and which, unlike call_direction, no outbound route sets again; a ring group or follow me leg gets it
-// from the call it was made for. It is read from the call itself, so a route signed before needs no change.
+// me, may still present the outside caller's number, which nobody here authenticated. When the number signed is the one
+// the call came in with, it is signed as a gateway (C) whatever the route asks for; a forward presenting another number
+// keeps the route's level. It is told by identity_origin and identity_origin_number, which this app's public dialplan
+// exports to every call that comes in from outside and which, unlike call_direction, no outbound route sets again; a
+// ring group or follow me leg gets them from the call it was made for. They are read from the call itself, so a route
+// signed before needs no change.
 $attest_note = '';
 $origin_note = '';
 if (!is_cli() && strtoupper(trim((string)$attest_level)) !== 'C') {
@@ -116,6 +118,12 @@ if (!is_cli() && strtoupper(trim((string)$attest_level)) !== 'C') {
 	if ($origin === 'inbound' && $identity->normalize_tn($origin_number) === $source_number) {
 		$attest_level = 'C';
 		$attest_note = 'Attestation lowered to C: the call came in from outside with this number and is forwarded, so the number was not authenticated here';
+	}
+	elseif ($origin === 'inbound' && $identity->normalize_tn($origin_number) === '') {
+		//the call came in from outside but the number it came with can not be read, as with an origin dialplan made
+		//before the number was recorded, so it is signed as a gateway, which is safe
+		$attest_level = 'C';
+		$attest_note = 'Attestation lowered to C: the call came in from outside and the number it came in with can not be read; run the upgrade';
 	}
 	elseif ($origin === '' || strpos($origin, '-ERR') === 0) {
 		//the origin could not be read, so the call is signed as the route asks, and the log says so
@@ -264,7 +272,7 @@ $identity_logs->add([
 	'identity_log_origid' => $payload['origid'] ?? '',
 	'identity_log_iat' => $payload['iat'] ?? '',
 	'identity_log_brand' => $payload['rcd']['nam'] ?? '',
-	'identity_log_message' => !empty($result['error']) ? $result['error'] : trim($attest_note . ($attest_note !== '' && $origin_note !== '' ? '. ' : '') . $origin_note),
+	'identity_log_message' => !empty($result['error']) ? $result['error'] : implode('. ', array_filter([$attest_note, $origin_note])),
 ]);
 
 // Delete the logs older than the retention period, at most once an hour, after the response was sent

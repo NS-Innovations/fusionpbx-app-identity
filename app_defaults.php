@@ -57,7 +57,7 @@
 		if (!empty($origin)) {
 			$sql = "select count(*) from v_dialplans where dialplan_uuid = :dialplan_uuid and insert_date > now() - interval '1 hour' ";
 			if ($database->select($sql, ['dialplan_uuid' => $origin['dialplan_uuid']], 'column') > 0) {
-				(new cache)->flush();
+				identity_setup::clear_public_cache($database);
 			}
 			unset($sql);
 		}

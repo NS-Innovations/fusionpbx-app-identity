@@ -277,8 +277,10 @@ adds a global dialplan in the public context, `identity_origin` (order 11), that
 to outbound again, no route changes it, and a ring group or follow me leg gets it from the call it was made for. sign.php
 reads it from the switch by the call's `call_uuid`, so routes signed before need no change. When it can not be read,
 for example without a `call_uuid` or with the event socket down, the call is signed as the route asks and the log says
-so. Keep the `identity_origin` dialplan enabled; Setup's **Forwarded Calls** check shows an error when it is missing or
-disabled.
+so. A call that came in from outside whose number can not be read, as with an origin dialplan made before the number was
+recorded, is signed with C. Keep the `identity_origin` dialplan enabled; Setup's **Forwarded Calls** check shows an
+error when it is missing, disabled or does not record the number. This app clears only the public dialplan's cache
+keys when it changes a public dialplan, not the whole cache.
 
 Not covered: a call that never passes the public context, such as one from a gateway whose context is a domain, and a
 leg FreeSWITCH starts without the call it serves, such as a call center agent call or a conference dial out, carry no

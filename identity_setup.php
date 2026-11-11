@@ -390,7 +390,7 @@
 
 	//the origin dialplan, without which a forwarded call keeps the attestation of its route
 	$origin_dialplan = $setup->origin_dialplan();
-	if (empty($origin_dialplan) || $origin_dialplan['dialplan_enabled'] != 'true') {
+	if (empty($origin_dialplan) || $origin_dialplan['dialplan_enabled'] != 'true' || (int)$origin_dialplan['number_exported'] == 0) {
 		$checks[] = [$text['label-check_origin'], 'error', $text['message-origin_missing']];
 	}
 	else {
