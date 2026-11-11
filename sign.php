@@ -55,6 +55,13 @@ else {
 		return;
 	}
 
+	// Only a POST signs, as the routes send, so a link or redirect that makes the server fetch a url can not get a call
+	// signed
+	if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+		http_response_code(405);
+		return;
+	}
+
 	// Check if the CIDR is allowed, and log a refused request so an unsigned call can be traced
 	if (!identity_settings::is_allowed($allowed_cidr, $remote_address)) {
 		identity_logs::add_refused($database, 'sign', $remote_address, (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
@@ -63,7 +70,7 @@ else {
 
 	// Get the HTTP request values, a value that is not a string (such as source[]=) is treated as empty
 	$request_value = function (string $name, string $default = ''): string {
-		return is_string($_REQUEST[$name] ?? null) ? $_REQUEST[$name] : $default;
+		return is_string($_POST[$name] ?? null) ? $_POST[$name] : $default;
 	};
 	$source_number = $request_value('source');
 	$destination_number = $request_value('destination');
@@ -80,9 +87,22 @@ $identity = new identity($setting_array);
 $source_number = $identity->normalize_tn($source_number);
 $destination_number = $identity->normalize_tn($destination_number);
 
+// A call that came in and is going out again, such as one forwarded by call forward, a ring group or follow me, still
+// has the outside caller's number, which nobody here authenticated, so it is signed as a gateway (C) whatever the route
+// asks for. The direction is read from the call itself, so a route signed before this check needs no change.
+$attest_note = '';
+if (!is_cli() && is_uuid($call_uuid)) {
+	$esl = event_socket::create();
+	$direction = $esl->is_connected() ? trim((string)$esl->request('api uuid_getvar ' . $call_uuid . ' call_direction')) : '';
+	if ($direction === 'inbound' && strtoupper(trim((string)$attest_level)) !== 'C') {
+		$attest_level = 'C';
+		$attest_note = 'Attestation lowered to C: the call came in from outside and is forwarded, so its caller was not authenticated here';
+	}
+	unset($esl, $direction);
+}
+
 // Full attestation (A) asserts that the domain owns the calling number. When the number is not an inbound destination
 // of the domain, or the domain is not known, sign with partial attestation (B) instead. Not applied on the command line.
-$attest_note = '';
 $attest_level = is_string($attest_level) ? strtoupper(trim($attest_level)) : '';
 $number_owned = null;
 if (!is_cli() && $identity_settings['attestation_check'] && $attest_level === 'A') {

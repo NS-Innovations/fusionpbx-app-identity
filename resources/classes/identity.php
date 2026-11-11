@@ -514,18 +514,10 @@ class identity {
 			return false;
 		}
 
-		// The signer's certificate first, then any intermediate certificates served with it
-		preg_match_all('/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/s', $certificate_string, $matches);
-		$certificates = [];
-		foreach ($matches[0] as $block) {
-			$certificate = @openssl_x509_read($block);
-			if ($certificate === false) {
-				break;
-			}
-			$certificates[] = $certificate;
-		}
-		while (openssl_error_string()) {}
-		if (empty($certificates) || count($certificates) != count($matches[0])) {
+		// The signer's certificate first, then any intermediate certificates served with it, read the same way the
+		// signature was checked
+		$certificates = self::pem_certificates($certificate_string);
+		if ($certificates === null) {
 			$this->error_message = "Failed to read certificate.";
 			return false;
 		}
@@ -688,13 +680,14 @@ class identity {
 		$secret = $header_certificate_string;
 		$signing_input = $header_b64 . '.' . $payload_b64;
 
-		// Read certificate from secret (which is the certificate content), it comes from the caller so no PHP warning
-		$certificate = @openssl_x509_read($secret);
-		if (!$certificate) {
-			while (openssl_error_string()) {}
+		// Read the signer's certificate, the first of the download, with the parser the chain and revocation checks use,
+		// so the signature can not be checked with one certificate while another is checked against the trust list
+		$certificates = self::pem_certificates($secret);
+		if ($certificates === null) {
 			$this->error_message = "Failed to read certificate.";
 			return false;
 		}
+		$certificate = $certificates[0];
 
 		// Extract public key from certificate
 		$public_key = openssl_pkey_get_public($certificate);
@@ -810,6 +803,39 @@ class identity {
 		}
 
 		return ['claims' => $claims, 'error' => null];
+	}
+
+	/**
+	 * Reads the certificates of a PEM download, the signer's first. Every PEM block must be a CERTIFICATE block and
+	 * every one must read, as OpenSSL also reads other labels such as X509 CERTIFICATE, which a check that looks only
+	 * for CERTIFICATE blocks would skip, and nothing but certificates may be served.
+	 *
+	 * @param string $pem The download
+	 *
+	 * @return array|null The certificates, or null when the download is not only readable certificates
+	 */
+	public static function pem_certificates(string $pem): ?array {
+		if (!preg_match_all('/-----BEGIN ([^-\r\n]+)-----(.*?)-----END ([^-\r\n]+)-----/s', $pem, $blocks, PREG_SET_ORDER)) {
+			return null;
+		}
+		//nothing outside the blocks but white space
+		if (trim(preg_replace('/-----BEGIN ([^-\r\n]+)-----(.*?)-----END ([^-\r\n]+)-----/s', '', $pem)) !== '') {
+			return null;
+		}
+		$certificates = [];
+		foreach ($blocks as $block) {
+			if ($block[1] !== 'CERTIFICATE' || $block[3] !== 'CERTIFICATE') {
+				return null;
+			}
+			$certificate = @openssl_x509_read($block[0]);
+			if ($certificate === false) {
+				while (openssl_error_string()) {}
+				return null;
+			}
+			$certificates[] = $certificate;
+		}
+		while (openssl_error_string()) {}
+		return $certificates;
 	}
 
 	/**
@@ -1032,7 +1058,7 @@ class identity {
 		}
 
 		// Cache only a readable certificate
-		if ($apcu && @openssl_x509_read($body) !== false) {
+		if ($apcu && self::pem_certificates($body) !== null) {
 			apcu_store($cache_key, $body, self::CERTIFICATE_CACHE_TTL);
 		}
 		while (openssl_error_string()) {}

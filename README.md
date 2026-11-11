@@ -268,7 +268,12 @@ Only the destination number and area code count, which only superadmin can edit 
 customer's number. Store numbers outside North America with their country code in the destination number, such as
 `442071234567`.
 
-A lowered call is logged as signed with B, with the reason in the message. If a customer may use a number that is not
+A call that came in from outside and is going out again, such as one forwarded by call forward, a ring group or follow
+me, still carries the outside caller's number, which nobody here authenticated, so it is signed with C whatever the
+route asks for. sign.php reads the call's `call_direction` from the switch by its `call_uuid`, so routes signed before
+this need no change.
+
+A lowered call is logged as signed with B, or C for a forwarded call, with the reason in the message. If a customer may use a number that is not
 one of their destinations, for example a number hosted elsewhere with a letter of authorization, add it as an inbound
 destination of their domain, or turn the check off.
 
@@ -456,7 +461,8 @@ A passed result means:
   certificates
 - neither that certificate nor an intermediate certificate served with it is in the STI-PA certificate revocation
   list (see [Revocation](#revocation))
-- the signature is valid for that certificate
+- the signature is valid for that certificate, the same one the chain and revocation checks read: a download whose
+  PEM blocks are not all `CERTIFICATE` blocks, or that holds anything else, is refused
 
 Rich Call Data (the JSON output below) is only returned when the result is a pass.
 
@@ -638,7 +644,7 @@ error log instead.
 ### sign.php
 
 FreeSWITCH calls sign.php from the outbound route. It can also be called with curl from an address in **Allowed
-CIDR**, or from the command line.
+CIDR**, or from the command line. Only a POST signs; a GET is answered 405.
 
 | Parameter | Required | Description |
 |---|---|---|
@@ -646,8 +652,8 @@ CIDR**, or from the command line.
 | `destination` | yes | Called number |
 | `attest_level` | no | `A`, `B` or `C` (default `A`) |
 | `call_reason` | no | Call reason for branded calls |
-| `domain_uuid` | no | Logged with the result |
-| `call_uuid` | no | Logged with the result and used to link to the call detail record |
+| `domain_uuid` | no | The domain whose destinations the attestation check reads, and logged with the result |
+| `call_uuid` | no | Logged with the result, used to link to the call detail record, and to read the call's direction |
 
 Numbers are reduced to digits. A 10 digit North American number gets a leading 1. With the attestation check on, A is
 lowered to B unless `source` is a destination of `domain_uuid`; the check is not applied on the command line. The

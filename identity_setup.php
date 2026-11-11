@@ -44,7 +44,8 @@
 	$setup = new identity_setup(['database' => $database, 'config' => $config, 'domain_uuid' => $domain_uuid]);
 	$settings_manager = new identity_settings(['database' => $database, 'config' => $config]);
 	$identity_settings = $settings_manager->get();
-	$identity_settings['cache_path'] = (string)$settings->get('cache', 'location', '/var/cache/fusionpbx');
+	//the cache folder is the server's, read from the default settings only as sign.php and verify.php read it
+	$identity_settings['cache_path'] = (string)(new settings(['database' => $database]))->get('cache', 'location', '/var/cache/fusionpbx');
 	$identity = new identity($identity_settings);
 
 //get posted data

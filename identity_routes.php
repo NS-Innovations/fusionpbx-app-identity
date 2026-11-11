@@ -126,7 +126,7 @@
 
 //sign the new routes of every domain when it is due, only for platform administrators since it changes every domain
 	if ($sign_all && permission_exists('identity_setup_all')) {
-		identity_setup::sign_all_messages(identity_setup::sign_all_routes_if_due($database, (string)$settings->get('cache', 'location', '/var/cache/fusionpbx')), $text);
+		identity_setup::sign_all_messages(identity_setup::sign_all_routes_if_due($database, (string)(new settings(['database' => $database]))->get('cache', 'location', '/var/cache/fusionpbx')), $text);
 	}
 
 //get the count

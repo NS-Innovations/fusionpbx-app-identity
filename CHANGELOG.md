@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Security, verification:** the signature is now checked with the same certificate the chain and revocation checks
+  read. Before, a download that put a certificate under an `X509 CERTIFICATE` label first had its signature checked
+  with that certificate while a real carrier's certificate after it passed the trust list, so a forged header could
+  pass. A download whose PEM blocks are not all `CERTIFICATE` blocks, or that holds anything else, is refused.
+- **Security, attestation:** a call that came in from outside and is forwarded out again (call forward, ring group,
+  follow me) is signed with C, read from the call's `call_direction` by its `call_uuid`, so a caller spoofing one of
+  the domain's numbers no longer gets A on the forwarded call. Signed routes need no change.
+- **sign.php** signs only on POST, and the Setup and Routes pages read the cache folder from the default settings
+  only.
 - **Sign All Routes:** a new setting that adds signing to the outbound routes of every domain, including global routes
   and routes added later. Routes are signed when the setting is turned on, at most once an hour after a call is signed
   or verified or when a platform administrator opens Setup or Routes, and on upgrade. Saving other settings does not
