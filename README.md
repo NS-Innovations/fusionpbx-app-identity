@@ -270,8 +270,12 @@ customer's number. Store numbers outside North America with their country code i
 
 A call that came in from outside and is going out again, such as one forwarded by call forward, a ring group or follow
 me, still carries the outside caller's number, which nobody here authenticated, so it is signed with C whatever the
-route asks for. sign.php reads the call's `call_direction` from the switch by its `call_uuid`, so routes signed before
-this need no change.
+route asks for. The upgrade adds a global dialplan in the public context, `identity_origin` (order 11), that exports
+`identity_origin=inbound` to every call coming in from outside; unlike `call_direction`, which every outbound route sets
+to outbound again, no route changes it, and a ring group or follow me leg gets it from the call it was made for. sign.php
+reads it from the switch by the call's `call_uuid`, so routes signed before need no change. When it can not be read,
+for example without a `call_uuid` or with the event socket down, the call is signed as the route asks and the log says
+so. Keep the `identity_origin` dialplan enabled.
 
 A lowered call is logged as signed with B, or C for a forwarded call, with the reason in the message. If a customer may use a number that is not
 one of their destinations, for example a number hosted elsewhere with a letter of authorization, add it as an inbound
@@ -461,8 +465,8 @@ A passed result means:
   certificates
 - neither that certificate nor an intermediate certificate served with it is in the STI-PA certificate revocation
   list (see [Revocation](#revocation))
-- the signature is valid for that certificate, the same one the chain and revocation checks read: a download whose
-  PEM blocks are not all `CERTIFICATE` blocks, or that holds anything else, is refused
+- the signature is valid for that certificate, the same one the chain and revocation checks read: a download with a
+  PEM block other than `CERTIFICATE`, such as `X509 CERTIFICATE`, is refused; text between the blocks is ignored
 
 Rich Call Data (the JSON output below) is only returned when the result is a pass.
 
@@ -644,7 +648,7 @@ error log instead.
 ### sign.php
 
 FreeSWITCH calls sign.php from the outbound route. It can also be called with curl from an address in **Allowed
-CIDR**, or from the command line. Only a POST signs; a GET is answered 405.
+CIDR**, or from the command line. Only a POST signs; a GET is answered 405. verify.php too answers only a POST.
 
 | Parameter | Required | Description |
 |---|---|---|

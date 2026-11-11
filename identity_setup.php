@@ -258,7 +258,9 @@
 		}
 		else {
 			$url_pem = $identity->fetch_certificate($certificate_url, false);
-			$url_certificate = $url_pem === false ? false : @openssl_x509_read($url_pem);
+			//read as verify.php reads a download, so this check passes only what calls would pass
+			$url_certificates = $url_pem === false ? null : identity::pem_certificates($url_pem);
+			$url_certificate = $url_certificates === null ? false : $url_certificates[0];
 			while (openssl_error_string()) {}
 			if ($url_pem === false) {
 				$checks[] = [$labels['certificate_url'], 'error', $text['message-url_unreachable'].' '.$identity->error_message];

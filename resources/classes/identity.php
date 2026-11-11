@@ -808,7 +808,8 @@ class identity {
 	/**
 	 * Reads the certificates of a PEM download, the signer's first. Every PEM block must be a CERTIFICATE block and
 	 * every one must read, as OpenSSL also reads other labels such as X509 CERTIFICATE, which a check that looks only
-	 * for CERTIFICATE blocks would skip, and nothing but certificates may be served.
+	 * for CERTIFICATE blocks would skip. Text between the blocks, such as the subject lines openssl writes, is left
+	 * out.
 	 *
 	 * @param string $pem The download
 	 *
@@ -816,10 +817,6 @@ class identity {
 	 */
 	public static function pem_certificates(string $pem): ?array {
 		if (!preg_match_all('/-----BEGIN ([^-\r\n]+)-----(.*?)-----END ([^-\r\n]+)-----/s', $pem, $blocks, PREG_SET_ORDER)) {
-			return null;
-		}
-		//nothing outside the blocks but white space
-		if (trim(preg_replace('/-----BEGIN ([^-\r\n]+)-----(.*?)-----END ([^-\r\n]+)-----/s', '', $pem)) !== '') {
 			return null;
 		}
 		$certificates = [];

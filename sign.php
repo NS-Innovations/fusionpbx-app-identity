@@ -19,6 +19,10 @@ $setting_array['certificate_path'] = $identity_settings['certificate_path'];
 $setting_array['certificate_url'] = $identity_settings['certificate_url'];
 $setting_array['debug'] = $debug;
 
+//the cache folder is the server's, read from the default settings only, as the request's host picks the domain of the
+//global settings
+$cache_location = (string)(new settings(['database' => $database]))->get('cache', 'location', '/var/cache/fusionpbx');
+
 // Branded calling settings (Rich Call Data). Branding is off unless brands_file is set.
 $brands_file = $identity_settings['brands_file'];
 $bcid_setting_array = [];
@@ -64,7 +68,7 @@ else {
 
 	// Check if the CIDR is allowed, and log a refused request so an unsigned call can be traced
 	if (!identity_settings::is_allowed($allowed_cidr, $remote_address)) {
-		identity_logs::add_refused($database, 'sign', $remote_address, (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
+		identity_logs::add_refused($database, 'sign', $remote_address, $cache_location);
 		return;
 	}
 
@@ -87,18 +91,29 @@ $identity = new identity($setting_array);
 $source_number = $identity->normalize_tn($source_number);
 $destination_number = $identity->normalize_tn($destination_number);
 
-// A call that came in and is going out again, such as one forwarded by call forward, a ring group or follow me, still
-// has the outside caller's number, which nobody here authenticated, so it is signed as a gateway (C) whatever the route
-// asks for. The direction is read from the call itself, so a route signed before this check needs no change.
+// A call that came in from outside and is going out again, such as one forwarded by call forward, a ring group or follow
+// me, still has the outside caller's number, which nobody here authenticated, so it is signed as a gateway (C) whatever
+// the route asks for. It is told by identity_origin, which this app's public dialplan exports to every call that comes
+// in from outside and which, unlike call_direction, no outbound route sets again; a ring group or follow me leg gets it
+// from the call it was made for. It is read from the call itself, so a route signed before needs no change.
 $attest_note = '';
-if (!is_cli() && is_uuid($call_uuid)) {
-	$esl = event_socket::create();
-	$direction = $esl->is_connected() ? trim((string)$esl->request('api uuid_getvar ' . $call_uuid . ' call_direction')) : '';
-	if ($direction === 'inbound' && strtoupper(trim((string)$attest_level)) !== 'C') {
+if (!is_cli() && strtoupper(trim((string)$attest_level)) !== 'C') {
+	$origin = '';
+	if (is_uuid($call_uuid)) {
+		$esl = event_socket::create();
+		$origin = $esl->is_connected() ? $esl->request('api uuid_getvar ' . $call_uuid . ' identity_origin') : '';
+		$origin = is_string($origin) ? trim($origin) : '';
+		unset($esl);
+	}
+	if ($origin === 'inbound') {
 		$attest_level = 'C';
 		$attest_note = 'Attestation lowered to C: the call came in from outside and is forwarded, so its caller was not authenticated here';
 	}
-	unset($esl, $direction);
+	elseif ($origin === '' || strpos($origin, '-ERR') === 0) {
+		//the origin could not be read, so the call is signed as the route asks, and the log says so
+		$attest_note = 'The origin of the call could not be read, so a forwarded call was not lowered to C';
+	}
+	unset($origin);
 }
 
 // Full attestation (A) asserts that the domain owns the calling number. When the number is not an inbound destination
@@ -245,10 +260,10 @@ $identity_logs->add([
 ]);
 
 // Delete the logs older than the retention period, at most once an hour, after the response was sent
-identity_logs::purge_if_due($database, (int)$identity_settings['database_retention_days'], (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
+identity_logs::purge_if_due($database, (int)$identity_settings['database_retention_days'], $cache_location);
 
 // Add signing to the new outbound routes of every domain when Sign All Routes is on, at most once an hour, only
 // when the response was already sent so the call never waits for it
 if ($identity_settings['sign_all_routes'] && !is_cli() && function_exists('fastcgi_finish_request')) {
-	identity_setup::sign_all_routes_if_due($database, (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
+	identity_setup::sign_all_routes_if_due($database, $cache_location);
 }

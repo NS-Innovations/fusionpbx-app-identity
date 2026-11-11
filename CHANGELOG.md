@@ -5,12 +5,15 @@
 - **Security, verification:** the signature is now checked with the same certificate the chain and revocation checks
   read. Before, a download that put a certificate under an `X509 CERTIFICATE` label first had its signature checked
   with that certificate while a real carrier's certificate after it passed the trust list, so a forged header could
-  pass. A download whose PEM blocks are not all `CERTIFICATE` blocks, or that holds anything else, is refused.
+  pass. A download with a PEM block other than `CERTIFICATE` is refused, and the Setup check of the Certificate URL
+  reads the download the same way.
 - **Security, attestation:** a call that came in from outside and is forwarded out again (call forward, ring group,
-  follow me) is signed with C, read from the call's `call_direction` by its `call_uuid`, so a caller spoofing one of
-  the domain's numbers no longer gets A on the forwarded call. Signed routes need no change.
-- **sign.php** signs only on POST, and the Setup and Routes pages read the cache folder from the default settings
-  only.
+  follow me) is signed with C, so a caller spoofing one of the domain's numbers no longer gets A on the forwarded call.
+  The upgrade adds the global public dialplan `identity_origin`, which exports `identity_origin=inbound` to every
+  inbound call; sign.php reads it by the call's `call_uuid`, as `call_direction` is set to outbound again by every
+  outbound route. Signed routes need no change; run the upgrade.
+- **sign.php and verify.php** answer only a POST, and they and the Setup and Routes pages read the cache folder from
+  the default settings only.
 - **Sign All Routes:** a new setting that adds signing to the outbound routes of every domain, including global routes
   and routes added later. Routes are signed when the setting is turned on, at most once an hour after a call is signed
   or verified or when a platform administrator opens Setup or Routes, and on upgrade. Saving other settings does not

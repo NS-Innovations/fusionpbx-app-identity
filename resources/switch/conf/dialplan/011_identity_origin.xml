@@ -1,0 +1,5 @@
+<extension name="identity_origin" context="public" continue="true" app_uuid="5b8f274c-5f69-4f16-94f1-243c44179d2f" global="true" order="11">
+	<condition field="" expression="" break="never">
+		<action application="export" data="identity_origin=inbound" inline="true"/>
+	</condition>
+</extension>

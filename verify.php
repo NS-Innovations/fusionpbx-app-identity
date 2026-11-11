@@ -19,7 +19,10 @@ $setting_array['certificate_path'] = $identity_settings['certificate_path'];
 $setting_array['certificate_url'] = $identity_settings['certificate_url'];
 $setting_array['trust_list'] = $identity_settings['trust_list'];
 $setting_array['crl_url'] = $identity_settings['crl_url'];
-$setting_array['cache_path'] = (string)$settings->get('cache', 'location', '/var/cache/fusionpbx');
+//the cache folder is the server's, read from the default settings only, as the request's host picks the domain of the
+//global settings
+$cache_location = (string)(new settings(['database' => $database]))->get('cache', 'location', '/var/cache/fusionpbx');
+$setting_array['cache_path'] = $cache_location;
 $setting_array['debug'] = $debug;
 
 // Get the identity header
@@ -38,6 +41,12 @@ else {
 		return;
 	}
 
+	// Only a POST verifies, as the dialplan sends, so a link or redirect can not make the server download a certificate
+	if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+		http_response_code(405);
+		return;
+	}
+
 	// Check if the CIDR is allowed, and log a refused request so an unverified call can be traced
 	if (!identity_settings::is_allowed($allowed_cidr, $remote_address)) {
 		identity_logs::add_refused($database, 'verify', $remote_address, $setting_array['cache_path']);
@@ -46,7 +55,7 @@ else {
 
 	// Get the variables, a value that is not a string (such as identity[]=) is treated as empty
 	$request_value = function (string $name): string {
-		return is_string($_REQUEST[$name] ?? null) ? $_REQUEST[$name] : '';
+		return is_string($_POST[$name] ?? null) ? $_POST[$name] : '';
 	};
 	$identity_header = $request_value('identity');
 	$format = $request_value('format');
@@ -116,10 +125,10 @@ $identity_logs->add([
 ]);
 
 // Delete the logs older than the retention period, at most once an hour, after the response was sent
-identity_logs::purge_if_due($database, (int)$identity_settings['database_retention_days'], (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
+identity_logs::purge_if_due($database, (int)$identity_settings['database_retention_days'], $cache_location);
 
 // Add signing to the new outbound routes of every domain when Sign All Routes is on, at most once an hour, only
 // when the response was already sent so the call never waits for it
 if ($identity_settings['sign_all_routes'] && !is_cli() && function_exists('fastcgi_finish_request')) {
-	identity_setup::sign_all_routes_if_due($database, (string)$settings->get('cache', 'location', '/var/cache/fusionpbx'));
+	identity_setup::sign_all_routes_if_due($database, $cache_location);
 }
