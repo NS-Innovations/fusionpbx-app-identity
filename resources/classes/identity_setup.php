@@ -45,6 +45,14 @@ class identity_setup {
 	const verify_app_uuid = '9cbde6c1-f0c5-456f-a847-c5e6ea16c531';
 
 	/**
+	 * The app uuid of the public dialplan that marks a call coming in from outside, from
+	 * resources/switch/conf/dialplan/011_identity_origin.xml
+	 *
+	 * @var string
+	 */
+	const origin_app_uuid = '5b8f274c-5f69-4f16-94f1-243c44179d2f';
+
+	/**
 	 * URL FreeSWITCH uses to reach sign.php and verify.php
 	 */
 	const local_url = 'http://127.0.0.1/app/identity';
@@ -1744,6 +1752,51 @@ class identity_setup {
 	}
 
 	/**
+	 * Get the dialplan that marks a call coming in from outside.
+	 *
+	 * @return array dialplan_uuid, dialplan_enabled and number_exported, or an empty array if it does not exist
+	 */
+	public function origin_dialplan(): array {
+		$sql = "select dialplan_uuid, cast(dialplan_enabled as text) as dialplan_enabled, ";
+		$sql .= "(select count(*) from v_dialplan_details as d where d.dialplan_uuid = p.dialplan_uuid and d.dialplan_detail_data like 'identity_origin_number=%') as number_exported ";
+		$sql .= "from v_dialplans as p where app_uuid = :app_uuid ";
+		$parameters['app_uuid'] = self::origin_app_uuid;
+		$row = $this->database->select($sql, $parameters, 'row');
+		unset($sql, $parameters);
+		return is_array($row) ? $row : [];
+	}
+
+	/**
+	 * Adds the outside caller's number to the origin dialplan an earlier version made, which marked only that the
+	 * call came in, as the core import does not change a dialplan it made before.
+	 *
+	 * @return bool True when the dialplan was changed
+	 */
+	public function upgrade_origin(): bool {
+		$dialplan = $this->origin_dialplan();
+		if (empty($dialplan) || (int)$dialplan['number_exported'] > 0) {
+			return false;
+		}
+		$array['dialplan_details'][0]['dialplan_detail_uuid'] = uuid();
+		$array['dialplan_details'][0]['dialplan_uuid'] = $dialplan['dialplan_uuid'];
+		$array['dialplan_details'][0]['domain_uuid'] = null;
+		$array['dialplan_details'][0]['dialplan_detail_tag'] = 'action';
+		$array['dialplan_details'][0]['dialplan_detail_type'] = 'export';
+		$array['dialplan_details'][0]['dialplan_detail_data'] = 'identity_origin_number=${caller_id_number}';
+		$array['dialplan_details'][0]['dialplan_detail_inline'] = 'true';
+		$array['dialplan_details'][0]['dialplan_detail_group'] = 0;
+		$array['dialplan_details'][0]['dialplan_detail_order'] = 20;
+		$p = permissions::new();
+		$p->add('dialplan_detail_add', 'temp');
+		$p->add('dialplan_edit', 'temp');
+		$this->database->save($array);
+		$p->delete('dialplan_detail_add', 'temp');
+		$p->delete('dialplan_edit', 'temp');
+		$this->update_dialplan($dialplan['dialplan_uuid'], 'public');
+		return true;
+	}
+
+	/**
 	 * Get the inbound verification dialplan.
 	 *
 	 * @return array Array with keys: dialplan_uuid, dialplan_enabled, or an empty array if it does not exist
@@ -1890,7 +1943,13 @@ class identity_setup {
 			$dialplan_context = '*';
 		}
 		$cache = new cache;
-		$cache->delete("dialplan:".$dialplan_context);
+		if ($dialplan_context == 'public') {
+			//in single dialplan mode each inbound number has its own cache key, dialplan:public:<number>
+			$cache->flush();
+		}
+		else {
+			$cache->delete("dialplan:".$dialplan_context);
+		}
 
 		//set the reload flag
 		$_SESSION["reload_xml"] = true;

@@ -388,6 +388,15 @@
 		}
 	}
 
+	//the origin dialplan, without which a forwarded call keeps the attestation of its route
+	$origin_dialplan = $setup->origin_dialplan();
+	if (empty($origin_dialplan) || $origin_dialplan['dialplan_enabled'] != 'true') {
+		$checks[] = [$text['label-check_origin'], 'error', $text['message-origin_missing']];
+	}
+	else {
+		$checks[] = [$text['label-check_origin'], 'ok', ''];
+	}
+
 	//inbound verification
 	if (empty($verify_dialplan)) {
 		$checks[] = [$text['label-check_inbound'], 'warning', $text['message-verify_missing']];

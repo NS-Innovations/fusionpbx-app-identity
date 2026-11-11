@@ -97,23 +97,31 @@ $destination_number = $identity->normalize_tn($destination_number);
 // in from outside and which, unlike call_direction, no outbound route sets again; a ring group or follow me leg gets it
 // from the call it was made for. It is read from the call itself, so a route signed before needs no change.
 $attest_note = '';
+$origin_note = '';
 if (!is_cli() && strtoupper(trim((string)$attest_level)) !== 'C') {
 	$origin = '';
+	$origin_number = '';
 	if (is_uuid($call_uuid)) {
 		$esl = event_socket::create();
-		$origin = $esl->is_connected() ? $esl->request('api uuid_getvar ' . $call_uuid . ' identity_origin') : '';
+		if ($esl->is_connected()) {
+			$origin = $esl->request('api uuid_getvar ' . $call_uuid . ' identity_origin');
+			$origin_number = $esl->request('api uuid_getvar ' . $call_uuid . ' identity_origin_number');
+		}
 		$origin = is_string($origin) ? trim($origin) : '';
+		$origin_number = is_string($origin_number) ? trim($origin_number) : '';
 		unset($esl);
 	}
-	if ($origin === 'inbound') {
+	//only a call that still presents the outside caller's own number is lowered, so a forward that shows the
+	//domain's own number, as a ring group or follow me may set, keeps the attestation of its route
+	if ($origin === 'inbound' && $identity->normalize_tn($origin_number) === $source_number) {
 		$attest_level = 'C';
-		$attest_note = 'Attestation lowered to C: the call came in from outside and is forwarded, so its caller was not authenticated here';
+		$attest_note = 'Attestation lowered to C: the call came in from outside with this number and is forwarded, so the number was not authenticated here';
 	}
 	elseif ($origin === '' || strpos($origin, '-ERR') === 0) {
 		//the origin could not be read, so the call is signed as the route asks, and the log says so
-		$attest_note = 'The origin of the call could not be read, so a forwarded call was not lowered to C';
+		$origin_note = 'The origin of the call could not be read, so a forwarded call was not lowered to C';
 	}
-	unset($origin);
+	unset($origin, $origin_number);
 }
 
 // Full attestation (A) asserts that the domain owns the calling number. When the number is not an inbound destination
@@ -256,7 +264,7 @@ $identity_logs->add([
 	'identity_log_origid' => $payload['origid'] ?? '',
 	'identity_log_iat' => $payload['iat'] ?? '',
 	'identity_log_brand' => $payload['rcd']['nam'] ?? '',
-	'identity_log_message' => !empty($result['error']) ? $result['error'] : $attest_note,
+	'identity_log_message' => !empty($result['error']) ? $result['error'] : trim($attest_note . ($attest_note !== '' && $origin_note !== '' ? '. ' : '') . $origin_note),
 ]);
 
 // Delete the logs older than the retention period, at most once an hour, after the response was sent

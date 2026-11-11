@@ -269,13 +269,20 @@ customer's number. Store numbers outside North America with their country code i
 `442071234567`.
 
 A call that came in from outside and is going out again, such as one forwarded by call forward, a ring group or follow
-me, still carries the outside caller's number, which nobody here authenticated, so it is signed with C whatever the
-route asks for. The upgrade adds a global dialplan in the public context, `identity_origin` (order 11), that exports
-`identity_origin=inbound` to every call coming in from outside; unlike `call_direction`, which every outbound route sets
+me, may still present the outside caller's number, which nobody here authenticated. When the number being signed is
+the number the call came in with, it is signed with C whatever the route asks for; a forward that presents another
+number, such as the domain's own number a ring group or follow me sets, keeps the attestation of its route. The upgrade
+adds a global dialplan in the public context, `identity_origin` (order 11), that exports `identity_origin=inbound` and
+`identity_origin_number` (the caller's number) to every call coming in from outside; unlike `call_direction`, which every outbound route sets
 to outbound again, no route changes it, and a ring group or follow me leg gets it from the call it was made for. sign.php
 reads it from the switch by the call's `call_uuid`, so routes signed before need no change. When it can not be read,
 for example without a `call_uuid` or with the event socket down, the call is signed as the route asks and the log says
-so. Keep the `identity_origin` dialplan enabled.
+so. Keep the `identity_origin` dialplan enabled; Setup's **Forwarded Calls** check shows an error when it is missing or
+disabled.
+
+Not covered: a call that never passes the public context, such as one from a gateway whose context is a domain, and a
+leg FreeSWITCH starts without the call it serves, such as a call center agent call or a conference dial out, carry no
+`identity_origin`, so they keep the attestation of their route.
 
 A lowered call is logged as signed with B, or C for a forwarded call, with the reason in the message. If a customer may use a number that is not
 one of their destinations, for example a number hosted elsewhere with a letter of authorization, add it as an inbound
@@ -657,7 +664,7 @@ CIDR**, or from the command line. Only a POST signs; a GET is answered 405. veri
 | `attest_level` | no | `A`, `B` or `C` (default `A`) |
 | `call_reason` | no | Call reason for branded calls |
 | `domain_uuid` | no | The domain whose destinations the attestation check reads, and logged with the result |
-| `call_uuid` | no | Logged with the result, used to link to the call detail record, and to read the call's direction |
+| `call_uuid` | no | Logged with the result, used to link to the call detail record, and to read `identity_origin` and `identity_origin_number` from the call |
 
 Numbers are reduced to digits. A 10 digit North American number gets a leading 1. With the attestation check on, A is
 lowered to B unless `source` is a destination of `domain_uuid`; the check is not applied on the command line. The

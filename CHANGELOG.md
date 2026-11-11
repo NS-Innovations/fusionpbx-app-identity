@@ -8,10 +8,13 @@
   pass. A download with a PEM block other than `CERTIFICATE` is refused, and the Setup check of the Certificate URL
   reads the download the same way.
 - **Security, attestation:** a call that came in from outside and is forwarded out again (call forward, ring group,
-  follow me) is signed with C, so a caller spoofing one of the domain's numbers no longer gets A on the forwarded call.
-  The upgrade adds the global public dialplan `identity_origin`, which exports `identity_origin=inbound` to every
-  inbound call; sign.php reads it by the call's `call_uuid`, as `call_direction` is set to outbound again by every
-  outbound route. Signed routes need no change; run the upgrade.
+  follow me) that still presents the number it came in with is signed with C, so a caller spoofing one of the domain's
+  numbers no longer gets A on the forwarded call; a forward presenting another number, such as the domain's own, keeps
+  its route's attestation. The upgrade adds the global public dialplan `identity_origin`, which exports
+  `identity_origin=inbound` and `identity_origin_number` to every inbound call; sign.php reads them by the call's
+  `call_uuid`, as `call_direction` is set to outbound again by every outbound route. Setup's Forwarded Calls check shows
+  when the dialplan is missing or disabled. Call center agent calls, conference dial outs and calls from gateways whose
+  context is a domain are not covered. Signed routes need no change; run the upgrade.
 - **sign.php and verify.php** answer only a POST, and they and the Setup and Routes pages read the cache folder from
   the default settings only.
 - **Sign All Routes:** a new setting that adds signing to the outbound routes of every domain, including global routes

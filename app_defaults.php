@@ -46,6 +46,24 @@
 		unset($identity_setup, $updated);
 	}
 
+//the origin dialplan of an earlier version marks the outside caller's number too, once rather than for every domain
+	if ($domains_processed == 1) {
+		$identity_setup = new identity_setup(['database' => $database, 'domain_uuid' => '']);
+		if ($identity_setup->upgrade_origin()) {
+			echo "[ Identity ] The identity_origin dialplan now records the number an outside call came in with.\n";
+		}
+		//a new origin dialplan is in the public dialplans the switch has cached only once the cache is cleared
+		$origin = $identity_setup->origin_dialplan();
+		if (!empty($origin)) {
+			$sql = "select count(*) from v_dialplans where dialplan_uuid = :dialplan_uuid and insert_date > now() - interval '1 hour' ";
+			if ($database->select($sql, ['dialplan_uuid' => $origin['dialplan_uuid']], 'column') > 0) {
+				(new cache)->flush();
+			}
+			unset($sql);
+		}
+		unset($identity_setup, $origin);
+	}
+
 //update the verification actions added by earlier versions, once rather than for every domain
 	if ($domains_processed == 1) {
 		$identity_setup = new identity_setup(['database' => $database, 'domain_uuid' => '']);

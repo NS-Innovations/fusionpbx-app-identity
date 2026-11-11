@@ -390,6 +390,12 @@ $text['label-check_debug']['en-gb'] = "Debug";
 $text['label-check_outbound']['en-us'] = "Outbound Signing";
 $text['label-check_outbound']['en-gb'] = "Outbound Signing";
 
+$text['label-check_origin']['en-us'] = "Forwarded Calls";
+$text['label-check_origin']['en-gb'] = "Forwarded Calls";
+
+$text['message-origin_missing']['en-us'] = "The identity_origin dialplan is missing or disabled, so a forwarded call from outside keeps the attestation of its route. Run the upgrade, or enable it in the dialplan manager.";
+$text['message-origin_missing']['en-gb'] = "The identity_origin dialplan is missing or disabled, so a forwarded call from outside keeps the attestation of its route. Run the upgrade, or enable it in the dialplan manager.";
+
 $text['label-check_inbound']['en-us'] = "Inbound Verification";
 $text['label-check_inbound']['en-gb'] = "Inbound Verification";
 
